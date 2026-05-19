@@ -35,6 +35,14 @@ async function selectWorkspaceDirectory() {
     newWorkspaceRoot.value = selectedPath;
   }
 
+  if (newWorkspaceRoot.value && !newWorkspaceName.value.trim()) {
+    const path = newWorkspaceRoot.value;
+    const parts = path.split(/[\\/]/).filter(Boolean);
+    if (parts.length > 0) {
+      newWorkspaceName.value = parts[parts.length - 1];
+    }
+  }
+
   if (!newWorkspaceRoot.value) {
     detectedServices.value = [];
     return;
@@ -98,17 +106,20 @@ async function createWorkspace() {
         </label>
         <label>
           Chemin racine
-          <button
-            type="button"
-            class="pick-folder-button"
-            @click="selectWorkspaceDirectory"
-            aria-label="Sélectionner un dossier"
-            title="Sélectionner un dossier"
-          >
-            📁
-          </button>
+          <div class="path-selector" @click="selectWorkspaceDirectory" tabindex="0" @keydown.enter.space.prevent="selectWorkspaceDirectory">
+            <button
+              type="button"
+              class="pick-folder-button"
+              aria-label="Sélectionner un dossier"
+              title="Sélectionner un dossier"
+              tabindex="-1"
+            >
+              📁
+            </button>
+            <span v-if="newWorkspaceRoot" class="selected-path-inline">{{ newWorkspaceRoot }}</span>
+            <span v-else class="path-placeholder">Aucun dossier sélectionné</span>
+          </div>
         </label>
-        <p v-if="newWorkspaceRoot" class="selected-path">Chemin sélectionné : {{ newWorkspaceRoot }}</p>
         <div v-if="newWorkspaceRoot" class="detected-services">
           <p class="detected-services-title">Services Docker détectés :</p>
           <ul v-if="detectedServices.length > 0" class="detected-services-list">
@@ -201,11 +212,64 @@ h1 {
   border-radius: 10px;
   background: #fff;
   padding: 0.65rem 0.8rem;
-  text-align: left;
   font-size: 0.95rem;
   color: #1f2a44;
   cursor: pointer;
   transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
+  flex-shrink: 0;
+}
+
+.path-selector {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 10px;
+  padding: 0.25rem;
+  background: #fff;
+  cursor: pointer;
+  transition: border-color 0.15s ease, box-shadow 0.15s ease;
+  width: 100%;
+  box-sizing: border-box;
+  overflow: hidden;
+}
+
+.path-selector:hover {
+  border-color: #396cd8;
+}
+
+.path-selector:focus-within,
+.path-selector:focus-visible {
+  outline: none;
+  border-color: #396cd8;
+  box-shadow: 0 0 0 3px rgba(57, 108, 216, 0.2);
+}
+
+.path-selector .pick-folder-button {
+  border: none;
+  background: none;
+  pointer-events: none;
+}
+
+.selected-path-inline,
+.path-placeholder {
+  font-size: 0.9rem;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-grow: 1;
+  min-width: 0;
+  display: block;
+  padding-right: 0.5rem;
+}
+
+.selected-path-inline {
+  color: #1f2a44;
+}
+
+.path-placeholder {
+  color: #94a3b8;
+  font-style: italic;
 }
 
 .pick-folder-button:hover {
@@ -219,11 +283,6 @@ h1 {
   box-shadow: 0 0 0 3px rgba(57, 108, 216, 0.2);
 }
 
-.selected-path {
-  margin: -0.2rem 0 0;
-  color: #4f5d75;
-  font-size: 0.9rem;
-}
 
 .detected-services {
   border: 1px solid #dce7fa;
