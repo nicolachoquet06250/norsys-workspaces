@@ -92,4 +92,4 @@ jobs:
           releaseBody: ${{ steps.commit_message.outputs.message }}
           releaseDraft: false
           prerelease: false
-          args: --target ${{ matrix.target }}
+          # args: --target ${{ matrix.target }}
