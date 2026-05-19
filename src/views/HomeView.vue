@@ -1,11 +1,14 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
+import StatusIndicator from "../components/StatusIndicator.vue";
+import { useRuntimeStore } from "../stores/runtime";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspacesStore } from "../stores/workspaces";
 
 const router = useRouter();
 const workspacesStore = useWorkspacesStore();
+const runtimeStore = useRuntimeStore();
 const settingsStore = useSettingsStore();
 
 const totalServices = computed(() => {
@@ -16,7 +19,16 @@ onMounted(async () => {
   workspacesStore.clearSelectedWorkspace();
   await settingsStore.loadPersistedSettings();
   await workspacesStore.fetchWorkspaces();
+  
+  // Rafraîchir l'état de tous les workspaces pour l'affichage de l'état
+  for (const workspace of workspacesStore.items) {
+    await runtimeStore.refreshWorkspaceState(workspace.id);
+  }
 });
+
+function getWorkspaceGlobalStatus(workspaceId: string) {
+  return runtimeStore.byWorkspaceId[workspaceId]?.global_status ?? "idle";
+}
 
 function openWorkspaceDetail(workspaceId: string) {
   workspacesStore.selectWorkspace(workspaceId);
@@ -81,7 +93,10 @@ function openLastWorkspace() {
       <p v-else-if="workspacesStore.items.length === 0">Aucun workspace enregistré pour le moment.</p>
       <ul v-else class="workspace-grid">
         <li v-for="workspace in workspacesStore.items" :key="workspace.id" class="workspace-card">
-          <h3>{{ workspace.name }}</h3>
+          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
+            <h3>{{ workspace.name }}</h3>
+            <StatusIndicator :status="getWorkspaceGlobalStatus(workspace.id)" />
+          </div>
           <p>{{ workspace.root }}</p>
           <p v-if="workspace.services.length > 0" class="workspace-services">
             Services : {{ workspace.services.map((service) => service.name).join(", ") }}

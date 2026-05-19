@@ -25,9 +25,15 @@ pub struct WorkspaceConfig {
 }
 
 #[derive(Debug, Deserialize)]
+struct DockerComposeService {
+    #[serde(default)]
+    depends_on: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
 struct DockerComposeFile {
     #[serde(default)]
-    services: HashMap<String, serde_yaml::Value>,
+    services: HashMap<String, DockerComposeService>,
 }
 
 pub fn list_workspaces() -> Result<Vec<WorkspaceConfig>, String> {
@@ -98,13 +104,21 @@ pub fn detect_docker_services(root: &str) -> Result<Vec<ServiceConfig>, String> 
 
     let services = service_names
         .into_iter()
-        .map(|name| ServiceConfig {
-            name: name.clone(),
-            command: format!("docker compose up {name}"),
-            cwd: Some(trimmed_root.to_string()),
-            depends_on: vec![],
-            mode: "background".to_string(),
-            env: HashMap::new(),
+        .map(|name| {
+            let depends_on = compose
+                .services
+                .get(&name)
+                .map(|s| s.depends_on.clone())
+                .unwrap_or_default();
+
+            ServiceConfig {
+                name: name.clone(),
+                command: format!("docker compose up {name}"),
+                cwd: Some(trimmed_root.to_string()),
+                depends_on,
+                mode: "background".to_string(),
+                env: HashMap::new(),
+            }
         })
         .collect();
 

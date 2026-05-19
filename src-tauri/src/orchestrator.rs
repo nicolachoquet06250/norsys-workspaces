@@ -50,6 +50,7 @@ struct HttpProbeRegistry {
     results: HashMap<String, TcpProbeStatus>,
     in_flight: HashSet<String>,
     stop_flags: HashMap<String, Arc<AtomicBool>>,
+    depends_on: HashMap<String, Vec<String>>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -79,6 +80,7 @@ struct DockerComposeRuntime {
     workspace_root: String,
     service_names: Vec<String>,
     command_bin: DockerComposeCommand,
+    depends_on_map: HashMap<String, Vec<String>>,
 }
 
 #[derive(Clone, Copy)]
@@ -333,6 +335,7 @@ fn spawn_compose_state_worker(
                 compose_runtime.command_bin,
                 &compose_runtime.service_names,
                 &accessibility_targets_by_service,
+                &compose_runtime.depends_on_map,
             ) {
                 if let Ok(mut guard) = state_snapshot.lock() {
                     *guard = Some(state);
@@ -538,68 +541,112 @@ fn extract_probe_port(endpoint: &str) -> Option<u16> {
 
 fn is_database_service(service_name: &str) -> bool {
     let lowered = service_name.to_ascii_lowercase();
-    ["db", "database", "postgres", "mysql", "mariadb", "mongodb", "redis", "oracle", "sqlserver", "mssql", "cassandra", "neo4j", "elasticsearch", "opensearch"]
+    ["postgres", "mysql", "mariadb", "mongodb", "redis", "oracle", "sqlserver", "mssql", "cassandra", "neo4j", "elasticsearch", "opensearch", "mariadb-server"]
         .iter()
         .any(|keyword| lowered.contains(keyword))
 }
 
-fn run_nc_probe(port: u16) -> Result<TcpProbeStatus, String> {
-    let mut cmd = if is_windows_host() {
-        if !has_wsl_binary() {
-            return Err("WSL est requis sous Windows pour exécuter nc".to_string());
-        }
-        let mut cmd = Command::new("wsl");
-        cmd.arg("nc");
-        cmd
+fn get_service_ready_patterns(service_name: &str) -> Vec<&'static str> {
+    let lowered = service_name.to_ascii_lowercase();
+    if lowered.contains("mysql") || lowered.contains("mariadb") {
+        vec![
+            "ready for connections",
+            "port: 3306",
+            "mysqld: ready for connections",
+            "ready to accept connections",
+            "mysql: [warning]", // Souvent présent juste avant d'être prêt
+            "version: '8.",     // MySQL 8 startup
+            "version: '5.7",    // MySQL 5.7 startup
+            "starting mysql",
+            "initialized",
+        ]
+    } else if lowered.contains("postgres") {
+        vec!["database system is ready to accept connections"]
+    } else if lowered.contains("mongodb") {
+        vec!["waiting for connections", "waiting for connections on port"]
+    } else if lowered.contains("redis") {
+        vec!["ready to accept connections", "the server is now ready to accept connections"]
     } else {
-        Command::new("nc")
-    };
-
-    let output = cmd
-        .args(["-vz", "localhost", &port.to_string()])
-        .output()
-        .map_err(|error| format!("Impossible d'exécuter nc: {error}"))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let merged = format!("{}\n{}", stdout, stderr).to_ascii_lowercase();
-
-    if merged.contains("succeeded") {
-        return Ok(TcpProbeStatus::Ready);
+        vec![]
     }
-
-    if output.status.success() {
-        return Ok(TcpProbeStatus::Ready);
-    }
-
-    Ok(TcpProbeStatus::Loading)
 }
 
-fn run_ping_probe(host: &str, port: u16) -> Result<TcpProbeStatus, String> {
-    let mut cmd = if is_windows_host() {
-        if !has_wsl_binary() {
-            return Err("WSL est requis sous Windows pour exécuter ping".to_string());
-        }
-        let mut cmd = Command::new("wsl");
-        cmd.arg("ping");
-        cmd
-    } else {
-        Command::new("ping")
-    };
+use std::net::TcpStream;
 
-    let output = cmd
-        .args([host, "-p", &port.to_string(), "-c", "1", "-W", "1"])
-        .output()
-        .map_err(|error| format!("Impossible d'exécuter le test ping (host+port): {error}"))?;
+fn run_nc_probe(workspace_id: &str, service_name: &str, port: u16) -> Result<TcpProbeStatus, String> {
+    // Tentative de connexion TCP native en premier
+    let address = format!("127.0.0.1:{}", port);
+    
+    // On augmente le timeout à 1s pour plus de robustesse
+    let tcp_success = TcpStream::connect_timeout(&address.parse().unwrap(), Duration::from_millis(1000)).is_ok();
 
-    if output.status.success() {
-        return Ok(TcpProbeStatus::Ready);
+    if !tcp_success {
+        return Ok(TcpProbeStatus::Loading);
     }
 
-    Ok(TcpProbeStatus::Loading)
+    eprintln!("[orchestrator] TCP native probe REUSSIE pour `{}` sur port {}", service_name, port);
+
+    // Si c'est une base de données, on vérifie AUSSI les logs pour être sûr qu'elle est prête
+    if is_database_service(service_name) {
+        let ready_patterns = get_service_ready_patterns(service_name);
+        
+        // Si on a des patterns spécifiques, on les cherche.
+        if !ready_patterns.is_empty() {
+            if let Ok(guard) = registry().lock() {
+                if let Some(runtime) = guard.workspaces.get(workspace_id) {
+                    if let Ok(logs_guard) = runtime.logs.lock() {
+                        let service_name_lowered = service_name.to_ascii_lowercase();
+                        
+                        // On compte le nombre de fois où on a vu TCP OK pour ce service
+                        // pour implémenter un "soft fail" après plusieurs tentatives.
+                        // On utilise le registre in_flight pour stocker un compteur temporaire ?
+                        // Non, plus simple : on regarde la longueur des logs ou on accepte 
+                        // que si TCP est OK et qu'on a déjà cherché plusieurs fois, on valide.
+                        
+                        // On cherche d'abord les lignes qui contiennent le nom du service ET un pattern
+                        let is_ready_strict = logs_guard.iter().rev().take(500).any(|line| {
+                            let line_lowered = line.to_ascii_lowercase();
+                            let belongs_to_service = line_lowered.contains(&service_name_lowered);
+                            belongs_to_service && ready_patterns.iter().any(|pattern| line_lowered.contains(pattern))
+                        });
+
+                        if is_ready_strict {
+                            eprintln!("[orchestrator] Patterns de logs trouvés (strict) pour `{}`. Service prêt.", service_name);
+                            return Ok(TcpProbeStatus::Ready);
+                        }
+
+                        // Si on ne trouve pas en strict, on cherche juste le pattern dans les logs les plus récents
+                        // car Docker Compose peut omettre le nom du service dans certaines conditions de logs
+                        let is_ready_loose = logs_guard.iter().rev().take(100).any(|line| {
+                            let line_lowered = line.to_ascii_lowercase();
+                            ready_patterns.iter().any(|pattern| line_lowered.contains(pattern))
+                        });
+
+                        if is_ready_loose {
+                            eprintln!("[orchestrator] Patterns de logs trouvés (loose) pour `{}`. Service prêt.", service_name);
+                            return Ok(TcpProbeStatus::Ready);
+                        }
+                        
+                        // Si le port est ouvert (TCP OK) mais qu'on ne trouve pas le log,
+                        // et que les logs sont déjà conséquents (ou qu'on a attendu un peu), 
+                        // on finit par valider pour ne pas bloquer l'utilisateur.
+                        if logs_guard.len() > 30 {
+                             eprintln!("[orchestrator] TCP OK pour `{}`, logs présents ({}) mais pattern non trouvé. Validation par précaution.", service_name, logs_guard.len());
+                             return Ok(TcpProbeStatus::Ready);
+                        }
+
+                        eprintln!("[orchestrator] TCP OK pour `{}`, mais patterns de logs non trouvés. En attente...", service_name);
+                        return Ok(TcpProbeStatus::Loading);
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(TcpProbeStatus::Ready)
 }
 
-fn run_curl_probe(port: u16) -> Result<TcpProbeStatus, String> {
+fn run_http_probe(port: u16) -> Result<TcpProbeStatus, String> {
     let mut cmd = if is_windows_host() {
         if !has_wsl_binary() {
             return Err("WSL est requis sous Windows pour exécuter curl".to_string());
@@ -611,35 +658,39 @@ fn run_curl_probe(port: u16) -> Result<TcpProbeStatus, String> {
         Command::new("curl")
     };
 
+    // -I: HEAD request, -s: silent, -o /dev/null: discard output, -w %{http_code}: print only status code
+    // --connect-timeout 2: avoid hanging
     let output = cmd
         .args([
-            "--max-time",
-            "1",
-            "-s",
-            "-o",
-            "/dev/null",
-            "-w",
-            "%{http_code}",
-            &format!("http://localhost:{port}"),
+            "-I", "-s", 
+            "-o", "/dev/null", 
+            "-w", "%{http_code}", 
+            "--connect-timeout", "2",
+            &format!("http://localhost:{}", port)
         ])
         .output()
         .map_err(|error| format!("Impossible d'exécuter curl: {error}"))?;
 
-    let http_code = String::from_utf8_lossy(&output.stdout).trim().to_string();
-    if http_code != "000" && !http_code.is_empty() {
-        return Ok(TcpProbeStatus::Ready);
-    }
+    let status_code = String::from_utf8_lossy(&output.stdout).trim().to_string();
 
-    if output.status.success() {
+    // Si on a un code HTTP (même 404, 500), le serveur HTTP est là et répond.
+    // 000 signifie généralement "Connection refused" ou timeout par curl
+    if !status_code.is_empty() && status_code != "000" {
         return Ok(TcpProbeStatus::Ready);
     }
 
     Ok(TcpProbeStatus::Loading)
 }
 
-fn spawn_probe_until_success(endpoint_key: String, service_name: String, port: u16, stop_flag: Arc<AtomicBool>) {
+
+fn spawn_probe_until_success(
+    workspace_id: String,
+    endpoint_key: String,
+    service_name: String,
+    port: u16,
+    stop_flag: Arc<AtomicBool>,
+) {
     thread::spawn(move || {
-        const PROBE_RETRY_INTERVAL_MS: u64 = 300;
         let mut has_been_ready = false;
 
         eprintln!(
@@ -648,14 +699,63 @@ fn spawn_probe_until_success(endpoint_key: String, service_name: String, port: u
         );
 
         loop {
-            if stop_flag.load(Ordering::SeqCst) {
+            if stop_flag.load(Ordering::Relaxed) {
                 break;
             }
 
-            let probe_result = run_ping_probe("localhost", port);
+            // Fréquence des sondes : 1000ms pour éviter de surcharger (DDOS)
+            const PROBE_INTERVAL_MS: u64 = 1000;
+
+            // Vérifier les dépendances avant de tester le port
+            let mut can_probe = true;
+            let mut missing_dep = None;
+
+            {
+                if let Ok(guard) = http_probe_registry().lock() {
+                    if let Some(deps) = guard.depends_on.get(&endpoint_key) {
+                        // Pour chaque dépendance, on vérifie si elle est prête dans le registre
+                        for dep_name in deps {
+                            let dep_lower = dep_name.to_ascii_lowercase();
+                            let workspace_lower = workspace_id.to_ascii_lowercase();
+                            let prefix = format!("{}::{}::", workspace_lower, dep_lower);
+                            
+                            let dep_ready = guard.results.iter().any(|(k, v)| {
+                                k.starts_with(&prefix) && *v == TcpProbeStatus::Ready
+                            });
+
+                            if !dep_ready {
+                                can_probe = false;
+                                missing_dep = Some(dep_name.clone());
+                                eprintln!("[orchestrator] sonde `{}` suspendue : attend `{}` (prefix: {})", service_name, dep_name, prefix);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+
+            if !can_probe {
+                if let Ok(mut guard) = http_probe_registry().lock() {
+                    guard.results.insert(endpoint_key.clone(), TcpProbeStatus::Loading);
+                }
+                thread::sleep(Duration::from_millis(PROBE_INTERVAL_MS));
+                continue;
+            }
+
+            let is_db = is_database_service(&service_name);
+            eprintln!("{} is db: {}", &service_name, is_db.to_string());
+            let is_web = is_probably_web_service(&service_name);
+            let probe_result = if is_db {
+                run_nc_probe(&workspace_id, &service_name, port)
+            } else if is_web {
+                run_http_probe(port)
+            } else {
+                run_nc_probe(&workspace_id, &service_name, port)
+            };
 
             match probe_result {
                 Ok(TcpProbeStatus::Ready) => {
+                    eprintln!("[orchestrator] sonde REUSSIE pour `{}` sur localhost:{}", service_name, port);
                     has_been_ready = true;
                     if let Ok(mut guard) = http_probe_registry().lock() {
                         guard.results.insert(endpoint_key.clone(), TcpProbeStatus::Ready);
@@ -693,7 +793,7 @@ fn spawn_probe_until_success(endpoint_key: String, service_name: String, port: u
                 }
             }
 
-            thread::sleep(Duration::from_millis(PROBE_RETRY_INTERVAL_MS));
+            thread::sleep(Duration::from_millis(PROBE_INTERVAL_MS));
         }
 
         if let Ok(mut guard) = http_probe_registry().lock() {
@@ -704,8 +804,15 @@ fn spawn_probe_until_success(endpoint_key: String, service_name: String, port: u
     });
 }
 
-fn get_endpoint_probe_status(workspace_id: &str, service_name: &str, endpoint: &str) -> TcpProbeStatus {
-    let Some(port) = extract_probe_port(endpoint) else {
+fn get_endpoint_probe_status(
+    workspace_id: &str,
+    service_name: &str,
+    endpoint: &str,
+    depends_on: Option<&[String]>,
+) -> TcpProbeStatus {
+    let port_opt = extract_probe_port(endpoint);
+    let Some(port) = port_opt else {
+        eprintln!("[orchestrator] impossible d'extraire le port de l'endpoint: {}", endpoint);
         return TcpProbeStatus::Loading;
     };
 
@@ -713,19 +820,31 @@ fn get_endpoint_probe_status(workspace_id: &str, service_name: &str, endpoint: &
         "{}::{}::{}",
         workspace_id.to_ascii_lowercase(),
         service_name.to_ascii_lowercase(),
-        endpoint
+        endpoint.to_ascii_lowercase()
     );
     if let Ok(mut guard) = http_probe_registry().lock() {
+        if let Some(deps) = depends_on {
+            guard.depends_on.insert(endpoint_key.clone(), deps.to_vec());
+        }
+
         if !guard.in_flight.contains(&endpoint_key) {
+            eprintln!("[orchestrator] lancement nouvelle sonde pour {}", endpoint_key);
             guard.in_flight.insert(endpoint_key.clone());
             guard
                 .results
                 .insert(endpoint_key.clone(), TcpProbeStatus::Loading);
+            
             let stop_flag = Arc::new(AtomicBool::new(false));
             guard
                 .stop_flags
                 .insert(endpoint_key.clone(), stop_flag.clone());
-            spawn_probe_until_success(endpoint_key.clone(), service_name.to_string(), port, stop_flag);
+            spawn_probe_until_success(
+                workspace_id.to_string(),
+                endpoint_key.clone(),
+                service_name.to_string(),
+                port,
+                stop_flag,
+            );
         }
 
         return guard
@@ -739,7 +858,7 @@ fn get_endpoint_probe_status(workspace_id: &str, service_name: &str, endpoint: &
 }
 
 fn is_endpoint_accessible(workspace_id: &str, service_name: &str, endpoint: &str) -> bool {
-    get_endpoint_probe_status(workspace_id, service_name, endpoint) == TcpProbeStatus::Ready
+    get_endpoint_probe_status(workspace_id, service_name, endpoint, None) == TcpProbeStatus::Ready
 }
 
 fn service_probe_status(
@@ -747,7 +866,9 @@ fn service_probe_status(
     service_name: &str,
     targets: &[String],
     any_target_defined: bool,
+    depends_on: Option<&[String]>,
 ) -> TcpProbeStatus {
+    eprintln!("[orchestrator] service_probe_status pour `{}` avec targets {:?}", service_name, targets);
     if targets.is_empty() {
         let _ = any_target_defined;
         return TcpProbeStatus::Loading;
@@ -755,8 +876,9 @@ fn service_probe_status(
 
     let mut has_loading = false;
     for target in targets {
-        eprintln!("[orchestrator] vérification accessibilité endpoint: {}", target);
-        match get_endpoint_probe_status(workspace_id, service_name, target) {
+        let status = get_endpoint_probe_status(workspace_id, service_name, target, depends_on);
+        eprintln!("[orchestrator] vérification accessibilité endpoint: {} -> {:?}", target, status);
+        match status {
             TcpProbeStatus::Ready => {}
             TcpProbeStatus::Error => return TcpProbeStatus::Error,
             TcpProbeStatus::Loading => has_loading = true,
@@ -803,7 +925,10 @@ fn are_all_targets_accessible(workspace_id: &str, service_name: &str, targets: &
 
 fn is_probably_web_service(service_name: &str) -> bool {
     let lowered = service_name.to_ascii_lowercase();
-    ["web", "api", "backend", "front", "ui", "app"]
+    if is_database_service(service_name) {
+        return false;
+    }
+    ["frontend", "backend", "api", "web", "app", "adminer", "phpmyadmin", "swagger", "dashboard"]
         .iter()
         .any(|keyword| lowered.contains(keyword))
 }
@@ -948,6 +1073,7 @@ fn build_compose_runtime_state(
     command_bin: DockerComposeCommand,
     service_names: &[String],
     accessibility_targets_by_service: &HashMap<String, Vec<String>>,
+    depends_on_map: &HashMap<String, Vec<String>>,
 ) -> Result<RuntimeWorkspaceState, String> {
     let ps_all_output = run_compose_command(workspace_root, command_bin, &["ps", "--all", "--format", "json"])?;
     if !ps_all_output.status.success() {
@@ -981,7 +1107,8 @@ fn build_compose_runtime_state(
     let any_target_defined = accessibility_targets_by_service
         .values()
         .any(|targets| !targets.is_empty());
-    let services = service_names
+
+    let mut services = service_names
         .iter()
         .map(|name| {
             if running_set.contains(name.as_str()) {
@@ -995,35 +1122,94 @@ fn build_compose_runtime_state(
                         .cloned()
                         .unwrap_or_default()
                         .into_iter()
-                        .map(|port| {
-                            if is_database_service(name) {
-                                port.to_string()
-                            } else {
-                                format!("http://localhost:{port}")
-                            }
-                        })
+                        .map(|port| port.to_string())
                         .collect::<Vec<_>>()
                 } else {
                     service_targets
                 };
-                let probe_status =
-                    service_probe_status(workspace_id, name, &resolved_targets, any_target_defined);
+                let service_deps = depends_on_map.get(name).map(|d| d.as_slice());
+                
+                // On utilise une version simplifiée pour éviter la récursion infinie ou les blocages de verrous
+                let endpoint_key_prefix = format!(
+                    "{}::{}::",
+                    workspace_id.to_ascii_lowercase(),
+                    name.to_ascii_lowercase()
+                );
+                
+                let mut probe_status = TcpProbeStatus::Loading;
+                let has_ready = if let Ok(guard) = http_probe_registry().lock() {
+                    // On cherche s'il y a un résultat Ready pour ce service
+                    guard.results.iter().any(|(k, v)| {
+                        k.starts_with(&endpoint_key_prefix) && *v == TcpProbeStatus::Ready
+                    })
+                } else {
+                    false
+                };
+                
+                if has_ready {
+                    probe_status = TcpProbeStatus::Ready;
+                } else {
+                    // On force quand même l'appel à service_probe_status pour s'assurer que les sondes sont lancées
+                    // Note: service_probe_status va lui-même verrouiller le registre, d'où l'importance d'avoir lâché le verrou avant.
+                    probe_status = service_probe_status(workspace_id, name, &resolved_targets, any_target_defined, service_deps);
+                }
+                
+                eprintln!("[orchestrator] service `{}` (prefix: {}) probe_status final: {:?}", name, endpoint_key_prefix, probe_status);
+                
+                let (status, message) = match probe_status {
+                    TcpProbeStatus::Ready => (ServiceRuntimeStatus::Running, "Service prêt et accessible".to_string()),
+                    TcpProbeStatus::Loading => {
+                        // Vérifier si on attend une dépendance
+                        let mut waiting_for_dep = None;
+                        if let Some(deps) = depends_on_map.get(name) {
+                            for dep in deps {
+                                let dep_targets = accessibility_targets_by_service.get(dep).cloned().unwrap_or_default();
+                                let _ = if dep_targets.is_empty() {
+                                    published_ports_by_service
+                                        .get(dep)
+                                        .cloned()
+                                        .unwrap_or_default()
+                                        .into_iter()
+                                        .map(|port| port.to_string())
+                                        .collect::<Vec<_>>()
+                                } else {
+                                    dep_targets
+                                };
+                                
+                                let dep_ready = running_set.contains(dep.as_str()) && {
+                                    let dep_prefix = format!("{}::{}::", workspace_id.to_ascii_lowercase(), dep.to_ascii_lowercase());
+                                    let is_ready = if let Ok(p_guard) = http_probe_registry().lock() {
+                                        p_guard.results.iter().any(|(k, v)| k.starts_with(&dep_prefix) && *v == TcpProbeStatus::Ready)
+                                    } else {
+                                        false
+                                    };
+                                    is_ready
+                                };
+
+                                if !dep_ready {
+                                    eprintln!("[orchestrator] `build_compose_runtime_state` : `{}` attend `{}` (dep_ready={})", name, dep, dep_ready);
+                                    waiting_for_dep = Some(dep.clone());
+                                    break;
+                                }
+                            }
+                        }
+
+                        let msg = if let Some(dep) = waiting_for_dep {
+                            format!("En attente de la dépendance : {}", dep)
+                        } else if is_database_service(name) {
+                            "Base de données en cours d'initialisation...".to_string()
+                        } else {
+                            "Conteneur démarré, en attente d'accessibilité".to_string()
+                        };
+                        (ServiceRuntimeStatus::Starting, msg)
+                    }
+                    TcpProbeStatus::Error => (ServiceRuntimeStatus::Failed, "Conteneur inaccessible après démarrage".to_string()),
+                };
+
                 ServiceRuntimeState {
                     name: name.clone(),
-                    status: match probe_status {
-                        TcpProbeStatus::Ready => ServiceRuntimeStatus::Running,
-                        TcpProbeStatus::Loading => ServiceRuntimeStatus::Starting,
-                        TcpProbeStatus::Error => ServiceRuntimeStatus::Failed,
-                    },
-                    message: Some(match probe_status {
-                        TcpProbeStatus::Ready => "Conteneur en cours d'exécution".to_string(),
-                        TcpProbeStatus::Loading => {
-                            "Conteneur démarré, en attente d'accessibilité".to_string()
-                        }
-                        TcpProbeStatus::Error => {
-                            "Conteneur inaccessible après démarrage".to_string()
-                        }
-                    }),
+                    status,
+                    message: Some(message),
                 }
             } else {
                 let (state, exit_code) = detailed_statuses
@@ -1047,6 +1233,38 @@ fn build_compose_runtime_state(
             }
         })
         .collect::<Vec<_>>();
+
+    for i in 0..services.len() {
+        if services[i].status == ServiceRuntimeStatus::Running {
+            let service_name = &services[i].name;
+            if let Some(deps) = depends_on_map.get(service_name) {
+                let mut all_deps_running = true;
+                let mut missing_dep = String::new();
+
+                for dep in deps {
+                    let dep_status = services
+                        .iter()
+                        .find(|s| s.name.eq_ignore_ascii_case(dep))
+                        .map(|s| s.status.clone())
+                        .unwrap_or(ServiceRuntimeStatus::Stopped);
+
+                    if dep_status != ServiceRuntimeStatus::Running {
+                        all_deps_running = false;
+                        missing_dep = dep.clone();
+                        break;
+                    }
+                }
+
+                if !all_deps_running {
+                    services[i].status = ServiceRuntimeStatus::Starting;
+                    services[i].message = Some(format!(
+                        "Prêt, mais en attente de la dépendance : {}",
+                        missing_dep
+                    ));
+                }
+            }
+        }
+    }
 
     Ok(RuntimeWorkspaceState {
         workspace_id: workspace_id.to_string(),
@@ -1182,6 +1400,12 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
             workspace.services.iter().map(|service| service.name.clone()).collect()
         };
 
+        let depends_on_map: HashMap<String, Vec<String>> = workspace
+            .services
+            .iter()
+            .map(|s| (s.name.clone(), s.depends_on.clone()))
+            .collect();
+
         let logs = Arc::new(Mutex::new(VecDeque::new()));
         let stop_flag = Arc::new(AtomicBool::new(false));
         let state_snapshot = Arc::new(Mutex::new(None));
@@ -1190,6 +1414,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
             workspace_root: workspace.root.clone(),
             service_names: service_names.clone(),
             command_bin,
+            depends_on_map: depends_on_map.clone(),
         };
         let accessibility_targets_by_service =
             build_accessibility_targets_by_service(&service_names, &workspace.open);
@@ -1225,6 +1450,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
             command_bin,
             &service_names,
             &accessibility_targets_by_service,
+            &depends_on_map,
         )?;
 
         if let Ok(mut guard) = state_snapshot.lock() {
@@ -1351,6 +1577,12 @@ pub fn attach_workspace_runtime(workspace: &WorkspaceConfig) -> Result<RuntimeWo
                 .collect()
         };
 
+        let depends_on_map: HashMap<String, Vec<String>> = workspace
+            .services
+            .iter()
+            .map(|s| (s.name.clone(), s.depends_on.clone()))
+            .collect();
+
         let logs = Arc::new(Mutex::new(VecDeque::new()));
         let stop_flag = Arc::new(AtomicBool::new(false));
         let state_snapshot = Arc::new(Mutex::new(None));
@@ -1359,6 +1591,7 @@ pub fn attach_workspace_runtime(workspace: &WorkspaceConfig) -> Result<RuntimeWo
             workspace_root: workspace.root.clone(),
             service_names: service_names.clone(),
             command_bin,
+            depends_on_map: depends_on_map.clone(),
         };
         let accessibility_targets_by_service =
             build_accessibility_targets_by_service(&service_names, &workspace.open);
@@ -1395,6 +1628,7 @@ pub fn attach_workspace_runtime(workspace: &WorkspaceConfig) -> Result<RuntimeWo
             command_bin,
             &service_names,
             &accessibility_targets_by_service,
+            &depends_on_map,
         )?;
 
         if let Ok(mut guard) = state_snapshot.lock() {
@@ -1523,11 +1757,15 @@ pub fn refresh_workspace_state(mut current_state: RuntimeWorkspaceState) -> Resu
                             .get(&service_state.name)
                             .cloned()
                             .unwrap_or_default();
+                        
+                        // Note: Pour refresh_workspace_state (mode process direct), on n'a pas forcément de depends_on_map ici
+                        // Mais cette fonction est surtout pour le mode "background" sans Docker Compose.
                         let probe_status = service_probe_status(
                             &workspace_id,
                             &service_state.name,
                             &service_targets,
                             any_target_defined,
+                            None,
                         );
                         match probe_status {
                             TcpProbeStatus::Ready => {
@@ -1746,7 +1984,7 @@ mod tests {
 
     #[test]
     fn keeps_service_starting_when_no_accessibility_targets_are_defined() {
-        let probe_status = service_probe_status("w", "backend", &[], false);
+        let probe_status = service_probe_status("w", "backend", &[], false, None);
         assert_eq!(probe_status, TcpProbeStatus::Loading);
     }
 

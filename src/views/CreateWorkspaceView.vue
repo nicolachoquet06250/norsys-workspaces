@@ -89,6 +89,7 @@ async function createWorkspace() {
             @click="router.push({ name: 'home' })"
             aria-label="Retour à l'accueil"
             title="Retour à l'accueil"
+            :disabled="workspacesStore.isCreating"
         >
           🏠
         </button>
@@ -100,42 +101,44 @@ async function createWorkspace() {
 
     <section class="panel">
       <form class="create-form" @submit.prevent="createWorkspace">
-        <label>
-          Nom du workspace
-          <input v-model="newWorkspaceName" type="text" placeholder="Ex: Projet API" />
-        </label>
-        <label>
-          Chemin racine
-          <div class="path-selector" @click="selectWorkspaceDirectory" tabindex="0" @keydown.enter.space.prevent="selectWorkspaceDirectory">
-            <button
-              type="button"
-              class="pick-folder-button"
-              aria-label="Sélectionner un dossier"
-              title="Sélectionner un dossier"
-              tabindex="-1"
-            >
-              📁
-            </button>
-            <span v-if="newWorkspaceRoot" class="selected-path-inline">{{ newWorkspaceRoot }}</span>
-            <span v-else class="path-placeholder">Aucun dossier sélectionné</span>
+        <fieldset :disabled="workspacesStore.isCreating" style="border: none; padding: 0; margin: 0; display: grid; gap: 0.9rem;">
+          <label>
+            Nom du workspace
+            <input v-model="newWorkspaceName" type="text" placeholder="Ex: Projet API" />
+          </label>
+          <label>
+            Chemin racine
+            <div class="path-selector" @click="!workspacesStore.isCreating && selectWorkspaceDirectory()" tabindex="0" @keydown.enter.space.prevent="!workspacesStore.isCreating && selectWorkspaceDirectory()" :class="{ disabled: workspacesStore.isCreating }">
+              <button
+                type="button"
+                class="pick-folder-button"
+                aria-label="Sélectionner un dossier"
+                title="Sélectionner un dossier"
+                tabindex="-1"
+              >
+                📁
+              </button>
+              <span v-if="newWorkspaceRoot" class="selected-path-inline">{{ newWorkspaceRoot }}</span>
+              <span v-else class="path-placeholder">Aucun dossier sélectionné</span>
+            </div>
+          </label>
+          <div v-if="newWorkspaceRoot" class="detected-services">
+            <p class="detected-services-title">Services Docker détectés :</p>
+            <ul v-if="detectedServices.length > 0" class="detected-services-list">
+              <li v-for="service in detectedServices" :key="service.name">{{ service.name }}</li>
+            </ul>
+            <p v-else class="detected-services-empty">Aucun service détecté dans `docker-compose.yaml`.</p>
           </div>
-        </label>
-        <div v-if="newWorkspaceRoot" class="detected-services">
-          <p class="detected-services-title">Services Docker détectés :</p>
-          <ul v-if="detectedServices.length > 0" class="detected-services-list">
-            <li v-for="service in detectedServices" :key="service.name">{{ service.name }}</li>
-          </ul>
-          <p v-else class="detected-services-empty">Aucun service détecté dans `docker-compose.yaml`.</p>
-        </div>
-        <button
-          class="primary"
-          type="submit"
-          :disabled="workspacesStore.isCreating"
-          aria-label="Créer le workspace"
-          title="Créer le workspace"
-        >
-          {{ workspacesStore.isCreating ? "⏳ Création..." : "✅ Créer le workspace" }}
-        </button>
+          <button
+            class="primary"
+            type="submit"
+            :disabled="workspacesStore.isCreating"
+            aria-label="Créer le workspace"
+            title="Créer le workspace"
+          >
+            {{ workspacesStore.isCreating ? "⏳ Création..." : "✅ Créer le workspace" }}
+          </button>
+        </fieldset>
       </form>
       <p v-if="createError" class="error">{{ createError }}</p>
     </section>
@@ -186,6 +189,17 @@ h1 {
   color: #396cd8;
   cursor: pointer;
   padding: 0;
+}
+
+.back-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.path-selector.disabled {
+  background: #f1f5f9;
+  cursor: not-allowed;
+  opacity: 0.7;
 }
 
 .create-form {

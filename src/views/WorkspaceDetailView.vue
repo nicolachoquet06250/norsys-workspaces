@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onUnmounted, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
+import StatusIndicator from "../components/StatusIndicator.vue";
 import { useLogsStore } from "../stores/logs";
 import { useRuntimeStore } from "../stores/runtime";
 import { useSettingsStore } from "../stores/settings";
@@ -21,24 +22,8 @@ let isRuntimeRefreshInFlight = false;
 
 const routeWorkspaceId = computed(() => String(route.params.id ?? ""));
 
-function extractLogTimestamp(logLine: string): string | null {
-  const bracketedIsoMatch = logLine.match(/\[(\d{4}-\d{2}-\d{2}T[^]]+)]/);
-  if (bracketedIsoMatch?.[1]) {
-    return bracketedIsoMatch[1];
-  }
-
-  const plainDateTimeMatch = logLine.match(
-    /\b(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:\d{2})?)\b/,
-  );
-  if (plainDateTimeMatch?.[1]) {
-    return plainDateTimeMatch[1];
-  }
-
-  return null;
-}
-
 function formatLogWithCreationDate(logLine: string): string {
-  const timestamp = extractLogTimestamp(logLine);
+  const timestamp = logsStore.extractTimestamp(logLine);
   if (!timestamp) {
     return `[DATE_INCONNUE] ${logLine}`;
   }
@@ -84,20 +69,18 @@ onMounted(async () => {
   applyRouteSelection();
 });
 
-watch(routeWorkspaceId, () => {
-  applyRouteSelection();
-});
+watch(routeWorkspaceId, applyRouteSelection);
 
 watch(
   () => workspacesStore.selectedWorkspaceId,
   async (workspaceId, previousWorkspaceId) => {
-    if (previousWorkspaceId && previousWorkspaceId !== workspaceId) {
-      await runtimeStore.stopWorkspaceProbes(previousWorkspaceId);
-    }
-
     if (!workspaceId) {
       stopRuntimePolling();
       return;
+    }
+
+    if (previousWorkspaceId && previousWorkspaceId !== workspaceId) {
+      await runtimeStore.stopWorkspaceProbes(previousWorkspaceId);
     }
 
     try {
@@ -173,6 +156,9 @@ function applyRouteSelection() {
   if (!routeWorkspaceId.value) {
     return;
   }
+  if (workspacesStore.selectedWorkspaceId === routeWorkspaceId.value) {
+    return;
+  }
   workspacesStore.selectWorkspace(routeWorkspaceId.value);
 }
 
@@ -182,22 +168,9 @@ function selectWorkspace(workspaceId: string) {
   router.push({ name: "workspace-detail", params: { id: workspaceId } });
 }
 
-function formatServiceStatus(status: string): string {
-  if (status === "starting") {
-    return "chargement";
-  }
-  if (status === "stopping") {
-    return "arrêt en cours";
-  }
-  return status;
-}
-
-function getServiceStatus(serviceName: string): string {
+function getRawServiceStatus(serviceName: string): any {
   const runtimeService = selectedRuntimeOrDefault.value?.services.find((service) => service.name === serviceName);
-  if (!runtimeService) {
-    return formatServiceStatus("idle");
-  }
-  return formatServiceStatus(runtimeService.status);
+  return runtimeService?.status ?? "idle";
 }
 
 async function copyServiceCommand(command: string) {
@@ -336,6 +309,7 @@ async function deleteSelectedWorkspace() {
             @click="router.push({ name: 'home' })"
             aria-label="Retour à l'accueil"
             title="Retour à l'accueil"
+            :disabled="workspacesStore.isDeleting || runtimeStore.isStarting || runtimeStore.isStopping"
         >
           🏠
         </button>
@@ -356,6 +330,7 @@ async function deleteSelectedWorkspace() {
               class="workspace-item"
               :class="{ active: workspacesStore.selectedWorkspaceId === workspace.id }"
               @click="selectWorkspace(workspace.id)"
+              :disabled="workspacesStore.isDeleting || runtimeStore.isStarting || runtimeStore.isStopping"
             >
               {{ workspace.name }}
             </button>
@@ -369,8 +344,11 @@ async function deleteSelectedWorkspace() {
             <article class="panel">
               <p class="panel-kicker">Vue d'ensemble</p>
               <h2>{{ selectedWorkspace.name }}</h2>
-              <p><strong>Chemin racine :</strong> {{ selectedWorkspace.root }}</p>
-              <p><strong>État de l'interface :</strong> {{ settingsStore.uiState }}</p>
+              <p class="root-path"><strong>Chemin racine :</strong> <span>{{ selectedWorkspace.root }}</span></p>
+              <div style="display: flex; align-items: center; gap: 0.5rem;">
+                <strong>État global :</strong>
+                <StatusIndicator v-if="selectedRuntimeOrDefault" :status="selectedRuntimeOrDefault.global_status" show-text />
+              </div>
             </article>
 
             <article class="panel">
@@ -436,7 +414,7 @@ async function deleteSelectedWorkspace() {
                       </div>
                     </td>
                     <td>
-                      <strong>{{ getServiceStatus(service.name) }}</strong>
+                      <StatusIndicator :status="getRawServiceStatus(service.name)" show-text />
                     </td>
                   </tr>
                 </tbody>
@@ -544,6 +522,11 @@ async function deleteSelectedWorkspace() {
   margin: 0;
 }
 
+.back-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
 .workspace-item {
   width: 100%;
   text-align: left;
@@ -648,6 +631,15 @@ async function deleteSelectedWorkspace() {
 
 .copy-command-button:hover {
   background: #eef4ff;
+}
+
+.root-path {
+  word-break: break-all;
+  overflow-wrap: break-word;
+}
+
+.root-path span {
+  color: #4f5d75;
 }
 
 .actions {

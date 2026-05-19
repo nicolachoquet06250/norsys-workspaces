@@ -7,33 +7,60 @@ export const useLogsStore = defineStore("logs", () => {
   const isLoading = ref(false);
   const error = ref<string | null>(null);
   const inFlightByWorkspaceId = ref<Record<string, boolean>>({});
-  const seenTimestampsByWorkspaceId = ref<Record<string, Record<string, boolean>>>({});
+  const seenLogsByWorkspaceId = ref<Record<string, Set<string>>>( {});
 
   function extractTimestamp(logLine: string): string | null {
-    const bracketedIsoMatch = logLine.match(/\[(\d{4}-\d{2}-\d{2}T[^\]]+)\]/);
+    // 1. Format ISO bracketé: [2026-05-19T16:29:00Z]
+    const bracketedIsoMatch = logLine.match(/\[(\d{4}-\d{2}-\d{2}T[^\]]+)]/);
     if (bracketedIsoMatch?.[1]) {
       return bracketedIsoMatch[1];
     }
 
+    // 2. Format Apache/PHP: [Tue May 19 14:26:08 2026]
+    // Gère les jours à un chiffre avec espace: [Tue May  9 14:26:08 2026]
+    const apacheLogMatch = logLine.match(
+      /\[([A-Z][a-z]{2} [A-Z][a-z]{2} +?\d{1,2} \d{2}:\d{2}:\d{2} \d{4})]/,
+    );
+    if (apacheLogMatch?.[1]) {
+      return apacheLogMatch[1];
+    }
+
+    // 3. Common Log Format (Nginx/Apache access): [19/May/2026:14:26:08 +0200]
+    const commonLogFormatMatch = logLine.match(
+      /\[(\d{1,2}\/[A-Z][a-z]{2}\/\d{4}:\d{2}:\d{2}:\d{2} [+-]\d{4})]/,
+    );
+    if (commonLogFormatMatch?.[1]) {
+      return commonLogFormatMatch[1];
+    }
+
+    // 4. Format date/heure simple (ISO ou proche) sans crochets
     const plainDateTimeMatch = logLine.match(
-      /\b(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}:\d{2})?)\b/,
+      /\b(\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:[.,]\d+)?(?:Z|[+-]\d{2}(?::?\d{2})?)?)\b/,
     );
     if (plainDateTimeMatch?.[1]) {
       return plainDateTimeMatch[1];
     }
 
+    // fallback pour les logs de type "HEAD /" qui pourraient avoir un timestamp différent ou pas de timestamp
+    // mais ici on extrait le timestamp pour l'affichage, pas pour le dédoublage
     return null;
   }
 
   function appendDebugLog(workspaceId: string, message: string) {
     const timestamp = new Date().toISOString();
     const previousLogs = byWorkspaceId.value[workspaceId] ?? [];
-    byWorkspaceId.value[workspaceId] = [...previousLogs, `[DEBUG][${timestamp}] ${message}`];
+    const logLine = `[DEBUG][${timestamp}] ${message}`;
+    byWorkspaceId.value[workspaceId] = [...previousLogs, logLine];
+    
+    if (!seenLogsByWorkspaceId.value[workspaceId]) {
+      seenLogsByWorkspaceId.value[workspaceId] = new Set();
+    }
+    seenLogsByWorkspaceId.value[workspaceId].add(logLine);
   }
 
   function clearWorkspaceLogs(workspaceId: string) {
     delete byWorkspaceId.value[workspaceId];
-    delete seenTimestampsByWorkspaceId.value[workspaceId];
+    delete seenLogsByWorkspaceId.value[workspaceId];
     inFlightByWorkspaceId.value[workspaceId] = false;
   }
 
@@ -53,32 +80,29 @@ export const useLogsStore = defineStore("logs", () => {
         return;
       }
 
-      const seenTimestamps = seenTimestampsByWorkspaceId.value[workspaceId] ?? {};
+      if (!seenLogsByWorkspaceId.value[workspaceId]) {
+        seenLogsByWorkspaceId.value[workspaceId] = new Set();
+      }
+      const seenLogs = seenLogsByWorkspaceId.value[workspaceId];
 
       for (const previousLog of previousLogs) {
-        const timestamp = extractTimestamp(previousLog);
-        if (timestamp) {
-          seenTimestamps[timestamp] = true;
-        }
+        seenLogs.add(previousLog);
       }
 
       const uniqueLogsToAppend: string[] = [];
       for (const fetchedLog of fetchedLogs) {
-        const timestamp = extractTimestamp(fetchedLog);
-        if (!timestamp) {
-          uniqueLogsToAppend.push(fetchedLog);
+        if (seenLogs.has(fetchedLog)) {
           continue;
         }
 
-        if (seenTimestamps[timestamp]) {
+        // Filtrer les requêtes de healthcheck (HEAD /) demandées par l'utilisateur
+        if (fetchedLog.includes("HEAD /") || fetchedLog.includes("Accepted") || fetchedLog.includes("Closing")) {
           continue;
         }
 
-        seenTimestamps[timestamp] = true;
+        seenLogs.add(fetchedLog);
         uniqueLogsToAppend.push(fetchedLog);
       }
-
-      seenTimestampsByWorkspaceId.value[workspaceId] = seenTimestamps;
 
       if (previousLogs.length === 0) {
         byWorkspaceId.value[workspaceId] = uniqueLogsToAppend;
@@ -98,6 +122,7 @@ export const useLogsStore = defineStore("logs", () => {
     byWorkspaceId,
     isLoading,
     error,
+    extractTimestamp,
     appendDebugLog,
     clearWorkspaceLogs,
     fetchLogs,

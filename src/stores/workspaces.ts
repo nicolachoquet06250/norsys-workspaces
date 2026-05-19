@@ -20,9 +20,6 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     error.value = null;
     try {
       items.value = await invoke<WorkspaceConfig[]>("list_workspaces");
-      if (!selectedWorkspaceId.value && items.value.length > 0) {
-        selectedWorkspaceId.value = items.value[0].id;
-      }
     } catch (fetchError) {
       error.value = fetchError instanceof Error ? fetchError.message : "Impossible de charger les workspaces";
     } finally {
