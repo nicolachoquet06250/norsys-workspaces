@@ -20,15 +20,13 @@ use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn apply_production_process_flags(cmd: &mut Command) {
-    if !cfg!(debug_assertions) {
-        #[cfg(windows)]
-        // CREATE_NO_WINDOW: 0x08000000 (Ne pas créer de nouvelle fenêtre console)
-        cmd.creation_flags(CREATE_NO_WINDOW);
+    #[cfg(windows)]
+    // CREATE_NO_WINDOW: 0x08000000 (Ne pas créer de nouvelle fenêtre console)
+    cmd.creation_flags(CREATE_NO_WINDOW);
 
-        #[cfg(unix)]
-        // Mettre le processus dans son propre groupe de processus pour le détacher de la session courante
-        cmd.process_group(0);
-    }
+    #[cfg(unix)]
+    // Mettre le processus dans son propre groupe de processus pour le détacher de la session courante
+    cmd.process_group(0);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
