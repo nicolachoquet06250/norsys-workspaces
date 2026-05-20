@@ -79,7 +79,7 @@ jobs:
         id: commit_message
         shell: bash
         run: |
-          delimiter="$(uuidgen)"
+          delimiter="$(node -p "crypto.randomUUID()")"
           {
             echo "message<<$delimiter"
             git log -1 --pretty=%B
