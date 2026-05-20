@@ -54,7 +54,19 @@ jobs:
           version=$(node -p "require('./package.json').version")
           echo "version=v$version" >> $GITHUB_OUTPUT
 
+      - name: Check if tag exists
+        id: check_tag
+        shell: bash
+        run: |
+          tag_name="${{ steps.package_version.outputs.version }}"
+          if git rev-parse "$tag_name" >/dev/null 2>&1; then
+            echo "exists=true" >> $GITHUB_OUTPUT
+          else
+            echo "exists=false" >> $GITHUB_OUTPUT
+          fi
+
       - name: Create Tag
+        if: steps.check_tag.outputs.exists == 'false'
         uses: actions/github-script@v7
         with:
           script: |
@@ -76,6 +88,7 @@ jobs:
             }
 
       - name: Get commit message
+        if: steps.check_tag.outputs.exists == 'false'
         id: commit_message
         shell: bash
         run: |
@@ -87,6 +100,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: Build and Release
+        if: steps.check_tag.outputs.exists == 'false'
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
@@ -99,89 +113,3 @@ jobs:
           releaseDraft: false
           prerelease: false
           includeUpdaterJson: true
-
-#      - name: Generate latest.json
-#        shell: bash
-#        run: |
-#          node <<'NODE'
-#          const fs = require('fs')
-#          const path = require('path')
-#
-#          const version = '${{ steps.version.outputs.version }}'
-#          const tag = '${{ steps.version.outputs.tag }}'
-#          const repo = '${{ github.repository }}'
-#          const baseUrl = `https://github.com/${repo}/releases/download/${tag}`
-#
-#          function walk(dir) {
-#            return fs.readdirSync(dir, { withFileTypes: true }).flatMap(entry => {
-#              const full = path.join(dir, entry.name)
-#              return entry.isDirectory() ? walk(full) : [full]
-#            })
-#          }
-#
-#          const files = walk('release-assets')
-#          const platforms = {}
-#
-#          function assetUrl(file) {
-#            return `${baseUrl}/${encodeURIComponent(path.basename(file))}`
-#          }
-#
-#          function readSig(file) {
-#            const sig = `${file}.sig`
-#            if (!fs.existsSync(sig)) {
-#              throw new Error(`Signature manquante pour ${file}`)
-#            }
-#            return fs.readFileSync(sig, 'utf8').trim()
-#          }
-#
-#          const windows = files.find(f => f.endsWith('.exe'))
-#          if (windows) {
-#            platforms['windows-x86_64'] = {
-#              signature: readSig(windows),
-#              url: assetUrl(windows)
-#            }
-#          }
-#
-#          const linux = files.find(f => f.endsWith('.AppImage.tar.gz'))
-#          if (linux) {
-#            platforms['linux-x86_64'] = {
-#              signature: readSig(linux),
-#              url: assetUrl(linux)
-#            }
-#          }
-#
-#          const latest = {
-#            version,
-#            notes: `Release ${version}`,
-#            pub_date: new Date().toISOString(),
-#            platforms
-#          }
-#
-#          fs.writeFileSync('latest.json', JSON.stringify(latest, null, 2))
-#          console.log(JSON.stringify(latest, null, 2))
-#          NODE
-#
-#      - name: Flatten assets
-#        shell: bash
-#        run: |
-#          mkdir dist-release
-#          find release-assets -type f \( \
-#            -name "*.exe" -o \
-#            -name "*.msi" -o \
-#            -name "*.AppImage.tar.gz" -o \
-#            -name "*.deb" -o \
-#            -name "*.rpm" -o \
-#            -name "*.sig" \
-#          \) -exec cp {} dist-release/ \;
-#          cp latest.json dist-release/latest.json
-#          ls -la dist-release
-#
-#      - name: Create or update GitHub release
-#        uses: softprops/action-gh-release@v2
-#        with:
-#          tag_name: ${{ steps.version.outputs.tag }}
-#          name: Release ${{ steps.version.outputs.tag }}
-#          body: Release ${{ steps.version.outputs.tag }}
-#          files: dist-release/*
-#          draft: false
-#          prerelease: false
