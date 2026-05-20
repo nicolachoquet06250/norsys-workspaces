@@ -79,8 +79,12 @@ jobs:
         id: commit_message
         shell: bash
         run: |
-          msg=$(git log -1 --pretty=%B)
-          echo "message=$msg" >> $GITHUB_OUTPUT
+          delimiter="$(uuidgen)"
+          {
+            echo "message<<$delimiter"
+            git log -1 --pretty=%B
+            echo "$delimiter"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and Release
         uses: tauri-apps/tauri-action@v0
