@@ -1,6 +1,6 @@
 [package]
 name = "dev-workspace-manager"
-version = "0.1.5"
+version = "0.1.6"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -32,4 +32,5 @@ directories = "6.0.0"
 tokio = { version = "1.52.3", features = ["process", "macros", "rt-multi-thread"] }
 anyhow = "1.0.102"
 bollard = "0.21.0"
+tauri-plugin-updater = "2.0.0-rc"
 

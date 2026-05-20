@@ -90,10 +90,12 @@ jobs:
         uses: tauri-apps/tauri-action@v0
         env:
           GITHUB_TOKEN: ${{ secrets.GH_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
         with:
           tagName: ${{ steps.package_version.outputs.version }}
           releaseName: 'Release ${{ steps.package_version.outputs.version }}'
           releaseBody: ${{ steps.commit_message.outputs.message }}
           releaseDraft: false
           prerelease: false
-          # args: --target ${{ matrix.target }}
+          includeUpdaterJson: true # Force la génération du fichier latest.json
