@@ -98,5 +98,4 @@ jobs:
           releaseBody: ${{ steps.commit_message.outputs.message }}
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: ${{ matrix.platform == 'ubuntu-22.04' }} # Un seul job s'en occupe
-          retryAttempts: 3
+          includeUpdaterJson: true
