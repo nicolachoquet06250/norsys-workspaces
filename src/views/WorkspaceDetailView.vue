@@ -71,10 +71,10 @@ const activeServicesCount = computed(() => {
   return selectedRuntime.value.services.filter(s => s.status === 'running').length;
 });
 
-const getRawServiceStatus = (serviceName: string) => {
+/*const getRawServiceStatus = (serviceName: string) => {
   const runtimeService = selectedRuntimeOrDefault.value?.services.find((service) => service.name === serviceName);
   return runtimeService?.status ?? "idle";
-};
+};*/
 
 const serviceTableData = computed(() => {
   if (!selectedWorkspace.value) return [];
@@ -191,7 +191,7 @@ function applyRouteSelection() {
   workspacesStore.selectWorkspace(routeWorkspaceId.value);
 }
 
-function selectWorkspace(workspaceId: string) {
+/*function selectWorkspace(workspaceId: string) {
   workspacesStore.selectWorkspace(workspaceId);
   settingsStore.setLastWorkspace(workspaceId);
   router.push({ name: "workspace-detail", params: { id: workspaceId } });
@@ -215,7 +215,7 @@ async function copyServiceCommand(command: string) {
   textarea.select();
   document.execCommand("copy");
   document.body.removeChild(textarea);
-}
+}*/
 
 function syncUiStateFromRuntime(workspaceId: string): "starting" | "running" | "error" {
   const runtime = runtimeStore.byWorkspaceId[workspaceId];
