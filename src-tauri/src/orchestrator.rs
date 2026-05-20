@@ -4,7 +4,7 @@ use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
 #[cfg(unix)]
-use std::os::unix::process::CommandExt as UnixCommandExt;
+use std::os::unix::process::CommandExt;
 #[cfg(windows)]
 use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
@@ -17,21 +17,16 @@ use std::time::Duration;
 use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
 
 #[cfg(windows)]
-const DETACHED_PROCESS: u32 = 0x00000008;
-#[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 fn apply_production_process_flags(cmd: &mut Command) {
-    #[cfg(debug_assertions)]
-    let _ = cmd;
+    if !cfg!(debug_assertions) {
+        #[cfg(windows)]
+        // CREATE_NO_WINDOW: 0x08000000 (Ne pas créer de nouvelle fenêtre console)
+        cmd.creation_flags(CREATE_NO_WINDOW);
 
-    #[cfg(all(windows, not(debug_assertions)))]
-    {
-        cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
-    }
-
-    #[cfg(all(unix, not(debug_assertions)))]
-    {
+        #[cfg(unix)]
+        // Mettre le processus dans son propre groupe de processus pour le détacher de la session courante
         cmd.process_group(0);
     }
 }
@@ -194,7 +189,6 @@ fn has_wsl_binary() -> bool {
     apply_production_process_flags(&mut cmd);
     let detected = cmd
         .arg("--help")
-        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -257,7 +251,7 @@ fn run_compose_command(workspace_root: &str, command: DockerComposeCommand, args
 
     apply_production_process_flags(&mut cmd);
 
-    cmd.args(args).current_dir(workspace_root).stdin(Stdio::null());
+    cmd.args(args).current_dir(workspace_root);
     let output = cmd
         .output()
         .map_err(|e| format!("Impossible d'exécuter docker compose: {e}"))?;
@@ -1350,7 +1344,6 @@ fn build_child_command(service: &ServiceConfig, workspace: &WorkspaceConfig, env
         .unwrap_or_else(|| PathBuf::from(&workspace.root));
 
     cmd.current_dir(cwd)
-        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
 
