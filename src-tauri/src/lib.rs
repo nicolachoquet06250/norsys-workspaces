@@ -3,6 +3,7 @@ mod orchestrator;
 mod persistence;
 mod snapshot_manager;
 mod workspace_loader;
+mod system_stats;
 
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -16,6 +17,20 @@ use workspace_loader::WorkspaceConfig;
 #[derive(Default)]
 struct AppState {
     runtime: Mutex<HashMap<String, RuntimeWorkspaceState>>,
+}
+
+struct CombinedState {
+    app: AppState,
+    system: system_stats::SystemState,
+}
+
+impl Default for CombinedState {
+    fn default() -> Self {
+        Self {
+            app: AppState::default(),
+            system: system_stats::SystemState::default(),
+        }
+    }
 }
 
 #[derive(Serialize, Deserialize)]
@@ -55,7 +70,7 @@ fn save_persisted_settings(settings: PersistedSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_workspace(workspace_id: String, state: tauri::State<AppState>) -> Result<WorkspaceStartResponse, String> {
+fn start_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> Result<WorkspaceStartResponse, String> {
     let workspace = workspace_loader::list_workspaces()?
         .into_iter()
         .find(|w| w.id == workspace_id)
@@ -66,12 +81,13 @@ fn start_workspace(workspace_id: String, state: tauri::State<AppState>) -> Resul
 
     runtime_status.last_error = None;
 
-    let mut runtime_guard = state.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
+    let mut runtime_guard = state.app.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
     runtime_guard.insert(workspace_id.clone(), runtime_status.clone());
     drop(runtime_guard);
 
     persistence::add_recent_run(
         &workspace_id,
+        Some("_all_"),
         "start",
         if runtime_status.global_status == ServiceRuntimeStatus::Running {
             "success"
@@ -87,8 +103,8 @@ fn start_workspace(workspace_id: String, state: tauri::State<AppState>) -> Resul
 }
 
 #[tauri::command]
-fn get_workspace_runtime_state(workspace_id: String, state: tauri::State<AppState>) -> Result<RuntimeWorkspaceState, String> {
-    let mut runtime_guard = state.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
+fn get_workspace_runtime_state(workspace_id: String, state: tauri::State<CombinedState>) -> Result<RuntimeWorkspaceState, String> {
+    let mut runtime_guard = state.app.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
     let current_state = if let Some(current_state) = runtime_guard.get(&workspace_id).cloned() {
         current_state
     } else {
@@ -108,8 +124,8 @@ fn get_workspace_runtime_state(workspace_id: String, state: tauri::State<AppStat
 }
 
 #[tauri::command]
-fn stop_workspace(workspace_id: String, state: tauri::State<AppState>) -> Result<RuntimeWorkspaceState, String> {
-    let mut runtime_guard = state.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
+fn stop_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> Result<RuntimeWorkspaceState, String> {
+    let mut runtime_guard = state.app.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
     let current_state = runtime_guard
         .get(&workspace_id)
         .cloned()
@@ -119,7 +135,7 @@ fn stop_workspace(workspace_id: String, state: tauri::State<AppState>) -> Result
     runtime_guard.insert(workspace_id.clone(), stopped_state.clone());
     drop(runtime_guard);
 
-    persistence::add_recent_run(&workspace_id, "stop", "success")?;
+    persistence::add_recent_run(&workspace_id, Some("_all_"), "stop", "success")?;
 
     Ok(stopped_state)
 }
@@ -131,14 +147,14 @@ fn stop_workspace_probes(workspace_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn get_logs(workspace_id: String, state: tauri::State<AppState>) -> Result<Vec<String>, String> {
+fn get_logs(workspace_id: String, state: tauri::State<CombinedState>) -> Result<Vec<String>, String> {
     let _ = state;
     Ok(orchestrator::get_logs(&workspace_id))
 }
 
 #[tauri::command]
-fn save_snapshot(workspace_id: String, name: String, state: tauri::State<AppState>) -> Result<Snapshot, String> {
-    let runtime_guard = state.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
+fn save_snapshot(workspace_id: String, name: String, state: tauri::State<CombinedState>) -> Result<Snapshot, String> {
+    let runtime_guard = state.app.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
     let runtime = runtime_guard
         .get(&workspace_id)
         .cloned()
@@ -152,15 +168,95 @@ fn save_snapshot(workspace_id: String, name: String, state: tauri::State<AppStat
 }
 
 #[tauri::command]
-fn restore_snapshot(workspace_id: String, name: String, state: tauri::State<AppState>) -> Result<RuntimeWorkspaceState, String> {
+fn restore_snapshot(workspace_id: String, name: String, state: tauri::State<CombinedState>) -> Result<RuntimeWorkspaceState, String> {
     let snapshot = persistence::find_snapshot(&workspace_id, &name)?
         .ok_or_else(|| format!("Snapshot introuvable: {name}"))?;
 
     let restored = snapshot_manager::restore_snapshot(&snapshot);
-    let mut runtime_guard = state.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
+    let mut runtime_guard = state.app.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
     runtime_guard.insert(workspace_id, restored.clone());
 
     Ok(restored)
+}
+
+#[tauri::command]
+fn get_os_username() -> Result<String, String> {
+    let name = whoami::realname();
+    Ok(if name.is_empty() { whoami::username() } else { name })
+}
+
+#[tauri::command]
+fn get_os_email() -> Result<String, String> {
+    use std::process::Command;
+
+    // Tentative de récupération de l'UPN (User Principal Name) sur Windows
+    // qui correspond généralement à l'adresse email dans un environnement d'entreprise
+    if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("whoami");
+        cmd.arg("/UPN");
+        orchestrator::apply_production_process_flags(&mut cmd);
+        let output = cmd.output();
+
+        if let Ok(out) = output {
+            if out.status.success() {
+                let upn = String::from_utf8_lossy(&out.stdout).trim().to_string();
+                if !upn.is_empty() {
+                    return Ok(upn);
+                }
+            }
+        }
+    }
+
+    // Fallback ou autres OS : on peut essayer de construire l'email à partir du nom d'utilisateur et du domaine si dispo
+    // Mais pour l'instant, si whoami /UPN échoue ou si on est sur un autre OS, on renvoie une erreur
+    // pour que le frontend puisse gérer le fallback.
+    Err("Impossible de récupérer l'email système".to_string())
+}
+
+#[tauri::command]
+async fn is_docker_connected() -> bool {
+    use bollard::Docker;
+    use std::env;
+
+    let docker_host = env::var("DOCKER_HOST")
+        .unwrap_or_else(|_| {
+            if cfg!(target_os = "windows") {
+                "tcp://127.0.0.1:2375".to_string()
+            } else {
+                "unix:///var/run/docker.sock".to_string()
+            }
+        });
+
+    let docker = if docker_host.starts_with("tcp://") {
+        let http_url = docker_host.replacen("tcp://", "http://", 1);
+        Docker::connect_with_http(
+            &http_url,
+            2, // timeout court pour ne pas bloquer l'UI
+            bollard::API_DEFAULT_VERSION,
+        )
+    } else {
+        Docker::connect_with_local_defaults()
+    };
+
+    match docker {
+        Ok(client) => client.ping().await.is_ok(),
+        Err(_) => false,
+    }
+}
+
+#[tauri::command]
+fn get_recent_runs(limit: usize) -> Result<Vec<persistence::RecentRun>, String> {
+    persistence::get_recent_runs(limit)
+}
+
+#[tauri::command]
+fn add_recent_run(workspace_id: String, service_name: Option<String>, action: String, status: String) -> Result<(), String> {
+    persistence::add_recent_run(&workspace_id, service_name.as_deref(), &action, &status)
+}
+
+#[tauri::command]
+fn get_system_stats(state: tauri::State<CombinedState>) -> system_stats::SystemStats {
+    system_stats::get_system_stats(&state.system)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -176,7 +272,7 @@ pub fn run() {
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
-        .manage(AppState::default())
+        .manage(CombinedState::default())
         .invoke_handler(tauri::generate_handler![
             list_workspaces,
             create_workspace,
@@ -190,7 +286,13 @@ pub fn run() {
             stop_workspace_probes,
             get_logs,
             save_snapshot,
-            restore_snapshot
+            restore_snapshot,
+            get_os_username,
+            get_os_email,
+            is_docker_connected,
+            get_recent_runs,
+            add_recent_run,
+            get_system_stats
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

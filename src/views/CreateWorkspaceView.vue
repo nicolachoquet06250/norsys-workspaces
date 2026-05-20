@@ -5,6 +5,7 @@ import { ref } from "vue";
 import { useRouter } from "vue-router";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspacesStore } from "../stores/workspaces";
+import RightPanel from "../components/dashboard/RightPanel.vue";
 import type { ServiceConfig } from "../types";
 
 const router = useRouter();
@@ -81,261 +82,348 @@ async function createWorkspace() {
 </script>
 
 <template>
-  <main class="create-container">
-    <header class="panel hero">
-      <div style="display: flex; flex-direction: row; justify-content: flex-start; align-items: center; gap: 0.5rem;">
-        <button
-            class="back-link"
-            @click="router.push({ name: 'home' })"
-            aria-label="Retour à l'accueil"
-            title="Retour à l'accueil"
-            :disabled="workspacesStore.isCreating"
-        >
-          🏠
-        </button>
-        <p class="eyebrow">Nouveau workspace</p>
-      </div>
-      <h1>Créer un workspace</h1>
-      <p class="subtitle">Renseignez les informations minimales pour ajouter un espace de travail.</p>
-    </header>
-
-    <section class="panel">
-      <form class="create-form" @submit.prevent="createWorkspace">
-        <fieldset :disabled="workspacesStore.isCreating" style="border: none; padding: 0; margin: 0; display: grid; gap: 0.9rem;">
-          <label>
-            Nom du workspace
-            <input v-model="newWorkspaceName" type="text" placeholder="Ex: Projet API" />
-          </label>
-          <label>
-            Chemin racine
-            <div class="path-selector" @click="!workspacesStore.isCreating && selectWorkspaceDirectory()" tabindex="0" @keydown.enter.space.prevent="!workspacesStore.isCreating && selectWorkspaceDirectory()" :class="{ disabled: workspacesStore.isCreating }">
-              <button
-                type="button"
-                class="pick-folder-button"
-                aria-label="Sélectionner un dossier"
-                title="Sélectionner un dossier"
-                tabindex="-1"
-              >
-                📁
-              </button>
-              <span v-if="newWorkspaceRoot" class="selected-path-inline">{{ newWorkspaceRoot }}</span>
-              <span v-else class="path-placeholder">Aucun dossier sélectionné</span>
-            </div>
-          </label>
-          <div v-if="newWorkspaceRoot" class="detected-services">
-            <p class="detected-services-title">Services Docker détectés :</p>
-            <ul v-if="detectedServices.length > 0" class="detected-services-list">
-              <li v-for="service in detectedServices" :key="service.name">{{ service.name }}</li>
-            </ul>
-            <p v-else class="detected-services-empty">Aucun service détecté dans `docker-compose.yaml`.</p>
+  <div class="dashboard">
+    <div class="main-content">
+      <header class="dashboard-header">
+        <div class="welcome">
+          <div class="breadcrumb">
+            <span class="clickable" @click="router.push('/')">Accueil</span>
+            <span class="separator">/</span>
+            <span class="current">Nouveau workspace</span>
           </div>
+          <h1>Créer un workspace</h1>
+          <p class="subtitle">Renseignez les informations minimales pour ajouter un espace de travail.</p>
+        </div>
+        <div class="header-actions">
           <button
-            class="primary"
-            type="submit"
-            :disabled="workspacesStore.isCreating"
-            aria-label="Créer le workspace"
-            title="Créer le workspace"
+              class="btn-outline"
+              @click="router.push({ name: 'home' })"
+              :disabled="workspacesStore.isCreating"
           >
-            {{ workspacesStore.isCreating ? "⏳ Création..." : "✅ Créer le workspace" }}
+            Annuler
           </button>
-        </fieldset>
-      </form>
-      <p v-if="createError" class="error">{{ createError }}</p>
-    </section>
-  </main>
+        </div>
+      </header>
+
+      <section class="section">
+        <div class="create-card">
+          <form class="create-form" @submit.prevent="createWorkspace">
+            <fieldset :disabled="workspacesStore.isCreating">
+              <div class="form-group">
+                <label for="ws-name">Nom du workspace</label>
+                <input id="ws-name" v-model="newWorkspaceName" type="text" placeholder="Ex: Projet API" />
+              </div>
+
+              <div class="form-group">
+                <label>Chemin racine</label>
+                <div class="path-selector" @click="!workspacesStore.isCreating && selectWorkspaceDirectory()" tabindex="0" @keydown.enter.space.prevent="!workspacesStore.isCreating && selectWorkspaceDirectory()" :class="{ disabled: workspacesStore.isCreating }">
+                  <span class="folder-icon">📁</span>
+                  <span v-if="newWorkspaceRoot" class="selected-path-inline">{{ newWorkspaceRoot }}</span>
+                  <span v-else class="path-placeholder">Aucun dossier sélectionné</span>
+                  <button
+                    type="button"
+                    class="browse-btn"
+                    tabindex="-1"
+                  >
+                    Parcourir
+                  </button>
+                </div>
+              </div>
+
+              <div v-if="newWorkspaceRoot" class="detected-services">
+                <p class="detected-services-title">Services Docker détectés :</p>
+                <div v-if="detectedServices.length > 0" class="tech-tags">
+                  <span v-for="service in detectedServices" :key="service.name" class="tech-tag">
+                    📦 {{ service.name }}
+                  </span>
+                </div>
+                <p v-else class="detected-services-empty">Aucun service détecté dans `docker-compose.yaml`.</p>
+              </div>
+
+              <div class="form-actions">
+                <button
+                  class="btn-primary"
+                  type="submit"
+                  :disabled="workspacesStore.isCreating"
+                >
+                  <span v-if="workspacesStore.isCreating">⏳ Création...</span>
+                  <span v-else>Créer le workspace</span>
+                </button>
+              </div>
+            </fieldset>
+          </form>
+          <p v-if="createError" class="error-msg">{{ createError }}</p>
+        </div>
+      </section>
+    </div>
+
+    <RightPanel />
+  </div>
 </template>
 
 <style scoped>
-.create-container {
-  max-width: 760px;
+.dashboard {
+  display: flex;
+  padding: 2rem;
+  gap: 2rem;
+  width: 100%;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 2.5rem;
-  color: #14213d;
 }
 
-.panel {
-  border: 1px solid #d9e2f1;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
-  padding: 1.2rem;
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
 }
 
-.hero {
-  background: linear-gradient(135deg, #f7faff, #eef4ff);
-  margin-bottom: 1rem;
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
-.eyebrow {
-  margin: 0;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #4f5d75;
+.breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #8b949e;
+  margin-bottom: 0.5rem;
 }
 
-h1 {
-  margin: 0.2rem 0 0;
+.breadcrumb .clickable {
+  cursor: pointer;
+}
+
+.breadcrumb .clickable:hover {
+  color: #58a6ff;
+  text-decoration: underline;
+}
+
+.breadcrumb .separator {
+  color: #484f58;
+}
+
+.breadcrumb .current {
+  color: #f0f6fc;
+}
+
+.welcome h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  color: #f0f6fc;
 }
 
 .subtitle {
-  margin: 0.45rem 0 0;
-  color: #4f5d75;
+  color: #8b949e;
+  font-size: 0.95rem;
 }
 
-.back-link {
-  border: none;
-  background: transparent;
-  color: #396cd8;
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
+.btn-outline {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
+  font-weight: 600;
   cursor: pointer;
-  padding: 0;
+  transition: all 0.2s;
 }
 
-.back-link:disabled {
+.btn-outline:hover:not(:disabled) {
+  background-color: #21262d;
+  border-color: #8b949e;
+}
+
+.btn-outline:disabled {
   opacity: 0.5;
   cursor: not-allowed;
 }
 
-.path-selector.disabled {
-  background: #f1f5f9;
-  cursor: not-allowed;
-  opacity: 0.7;
+.section {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.create-form {
-  display: grid;
-  gap: 0.9rem;
+.create-card {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  border-radius: 12px;
+  padding: 2rem;
 }
 
-.create-form label {
-  display: grid;
-  gap: 0.35rem;
-  font-weight: 600;
-  color: #1f2a44;
+.create-form fieldset {
+  border: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1.5rem;
 }
 
-.create-form input {
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  padding: 0.65rem 0.8rem;
+.form-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.form-group label {
+  color: #f0f6fc;
+  font-weight: 500;
+  font-size: 0.9rem;
+}
+
+.form-group input {
+  background-color: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.6rem 0.8rem;
+  color: #f0f6fc;
   font-size: 0.95rem;
+  transition: border-color 0.2s;
 }
 
-.pick-folder-button {
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  background: #fff;
-  padding: 0.65rem 0.8rem;
-  font-size: 0.95rem;
-  color: #1f2a44;
-  cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease, background-color 0.15s ease;
-  flex-shrink: 0;
+.form-group input:focus {
+  outline: none;
+  border-color: #1f6feb;
+  box-shadow: 0 0 0 3px rgba(31, 111, 235, 0.1);
 }
 
 .path-selector {
   display: flex;
   align-items: center;
   gap: 0.75rem;
-  border: 1px solid #cbd5e1;
-  border-radius: 10px;
-  padding: 0.25rem;
-  background: #fff;
+  background-color: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 6px;
+  padding: 0.5rem 0.8rem;
   cursor: pointer;
-  transition: border-color 0.15s ease, box-shadow 0.15s ease;
-  width: 100%;
-  box-sizing: border-box;
-  overflow: hidden;
+  transition: border-color 0.2s;
 }
 
-.path-selector:hover {
-  border-color: #396cd8;
+.path-selector:hover:not(.disabled) {
+  border-color: #8b949e;
 }
 
-.path-selector:focus-within,
-.path-selector:focus-visible {
-  outline: none;
-  border-color: #396cd8;
-  box-shadow: 0 0 0 3px rgba(57, 108, 216, 0.2);
-}
-
-.path-selector .pick-folder-button {
-  border: none;
-  background: none;
-  pointer-events: none;
-}
-
-.selected-path-inline,
-.path-placeholder {
-  font-size: 0.9rem;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-grow: 1;
-  min-width: 0;
-  display: block;
-  padding-right: 0.5rem;
-}
-
-.selected-path-inline {
-  color: #1f2a44;
-}
-
-.path-placeholder {
-  color: #94a3b8;
-  font-style: italic;
-}
-
-.pick-folder-button:hover {
-  border-color: #396cd8;
-  background: #f7faff;
-}
-
-.pick-folder-button:focus-visible {
-  outline: none;
-  border-color: #396cd8;
-  box-shadow: 0 0 0 3px rgba(57, 108, 216, 0.2);
-}
-
-
-.detected-services {
-  border: 1px solid #dce7fa;
-  border-radius: 10px;
-  padding: 0.65rem 0.8rem;
-  background: #f8fbff;
-}
-
-.detected-services-title {
-  margin: 0;
-  font-weight: 600;
-}
-
-.detected-services-list {
-  margin: 0.4rem 0 0;
-  padding-left: 1.2rem;
-}
-
-.detected-services-empty {
-  margin: 0.4rem 0 0;
-  color: #4f5d75;
-}
-
-button.primary {
-  border: 1px solid #396cd8;
-  border-radius: 10px;
-  padding: 0.65rem 1rem;
-  background: #396cd8;
-  color: #fff;
-  font-weight: 600;
-  cursor: pointer;
-}
-
-button.primary:disabled {
+.path-selector.disabled {
   opacity: 0.6;
   cursor: not-allowed;
 }
 
-.error {
-  color: #b42318;
+.folder-icon {
+  font-size: 1.1rem;
+}
+
+.selected-path-inline {
+  color: #f0f6fc;
+  font-size: 0.9rem;
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.path-placeholder {
+  color: #484f58;
+  font-size: 0.9rem;
+  font-style: italic;
+  flex: 1;
+}
+
+.browse-btn {
+  background-color: #21262d;
+  border: 1px solid #30363d;
+  color: #c9d1d9;
+  padding: 0.3rem 0.6rem;
+  border-radius: 4px;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.detected-services {
+  background-color: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  padding: 1rem;
+}
+
+.detected-services-title {
+  color: #8b949e;
+  font-size: 0.85rem;
+  margin-bottom: 0.75rem;
+  font-weight: 500;
+}
+
+.tech-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.tech-tag {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  padding: 0.25rem 0.6rem;
+  border-radius: 6px;
+  font-size: 0.8rem;
+}
+
+.detected-services-empty {
+  color: #484f58;
+  font-size: 0.85rem;
+  font-style: italic;
+}
+
+.form-actions {
+  margin-top: 1rem;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.btn-primary {
+  background-color: #1f6feb;
+  color: white;
+  border: 1px solid rgba(240, 246, 252, 0.1);
+  padding: 0.6rem 1.5rem;
+  border-radius: 8px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background-color 0.2s;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background-color: #388bfd;
+}
+
+.btn-primary:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.error-msg {
+  color: #f85149;
+  font-size: 0.85rem;
+  margin-top: 1rem;
+  padding: 0.75rem;
+  background-color: rgba(248, 81, 73, 0.1);
+  border: 1px solid rgba(248, 81, 73, 0.2);
+  border-radius: 6px;
+}
+
+@media (max-width: 1000px) {
+  .dashboard {
+    flex-direction: column;
+  }
 }
 </style>

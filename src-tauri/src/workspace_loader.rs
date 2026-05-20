@@ -6,6 +6,7 @@ use std::path::Path;
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceConfig {
     pub name: String,
+    pub display_name: Option<String>,
     pub command: String,
     pub cwd: Option<String>,
     pub depends_on: Vec<String>,
@@ -34,6 +35,29 @@ struct DockerComposeService {
 struct DockerComposeFile {
     #[serde(default)]
     services: HashMap<String, DockerComposeService>,
+}
+
+pub fn to_human_friendly(name: &str) -> String {
+    let parts: Vec<&str> = if name.contains('-') {
+        name.split('-').collect()
+    } else if name.contains('_') {
+        name.split('_').collect()
+    } else {
+        vec![name]
+    };
+
+    parts
+        .into_iter()
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let mut c = p.chars();
+            match c.next() {
+                None => String::new(),
+                Some(f) => f.to_uppercase().collect::<String>() + c.as_str().to_lowercase().as_str(),
+            }
+        })
+        .collect::<Vec<String>>()
+        .join(" ")
 }
 
 pub fn list_workspaces() -> Result<Vec<WorkspaceConfig>, String> {
@@ -113,6 +137,7 @@ pub fn detect_docker_services(root: &str) -> Result<Vec<ServiceConfig>, String> 
 
             ServiceConfig {
                 name: name.clone(),
+                display_name: Some(to_human_friendly(&name)),
                 command: format!("docker compose up {name}"),
                 cwd: Some(trimmed_root.to_string()),
                 depends_on,

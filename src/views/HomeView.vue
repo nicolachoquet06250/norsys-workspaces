@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
-import StatusIndicator from "../components/StatusIndicator.vue";
 import { useRuntimeStore } from "../stores/runtime";
 import { useSettingsStore } from "../stores/settings";
 import { useWorkspacesStore } from "../stores/workspaces";
+import StatCard from "../components/dashboard/StatCard.vue";
+import WorkspaceCard from "../components/dashboard/WorkspaceCard.vue";
+import ServiceTable from "../components/dashboard/ServiceTable.vue";
+import RightPanel from "../components/dashboard/RightPanel.vue";
 
 const router = useRouter();
 const workspacesStore = useWorkspacesStore();
@@ -15,15 +18,93 @@ const totalServices = computed(() => {
   return workspacesStore.items.reduce((count, workspace) => count + workspace.services.length, 0);
 });
 
+const activeServices = computed(() => {
+    let count = 0;
+    for (const wsId in runtimeStore.byWorkspaceId) {
+        count += runtimeStore.byWorkspaceId[wsId].services.filter(s => s.status === 'running').length;
+    }
+    return count;
+});
+
+const activeWorkspaces = computed(() => {
+    return workspacesStore.items.filter(ws => getWorkspaceGlobalStatus(ws.id) === 'running').length;
+});
+
+const totalContainers = computed(() => {
+  const containerNames = new Set<string>();
+  workspacesStore.items.forEach(workspace => {
+    workspace.services.forEach(service => {
+      containerNames.add(service.name);
+    });
+  });
+  return containerNames.size;
+});
+
+const activeContainers = computed(() => {
+  const runningContainerNames = new Set<string>();
+  for (const wsId in runtimeStore.byWorkspaceId) {
+    const wsState = runtimeStore.byWorkspaceId[wsId];
+    wsState.services.forEach(service => {
+      if (service.status === 'running') {
+        runningContainerNames.add(service.name);
+      }
+    });
+  }
+  return runningContainerNames.size;
+});
+
+const serviceData = computed(() => {
+  const allServices = [];
+  for (const workspace of workspacesStore.items) {
+    const wsState = runtimeStore.byWorkspaceId[workspace.id];
+    if (!wsState) continue;
+    
+    for (const service of workspace.services) {
+      const sState = wsState.services.find(s => s.name === service.name);
+      allServices.push({
+        config: service,
+        workspace: workspace,
+        status: sState?.status || 'idle',
+        // On simule des ports pour le design
+        port: sState?.status === 'running' ? 3000 + Math.floor(Math.random() * 5000) : undefined,
+        lastActivity: sState?.last_transition ? formatTimeAgo(sState.last_transition) : 'Jamais utilisé'
+      });
+    }
+  }
+  
+  // Trier par activité récente
+  return allServices
+    .sort((a, b) => {
+        const wsA = runtimeStore.byWorkspaceId[a.workspace.id];
+        const wsB = runtimeStore.byWorkspaceId[b.workspace.id];
+        const sA = wsA?.services.find(s => s.name === a.config.name);
+        const sB = wsB?.services.find(s => s.name === b.config.name);
+        return (sB?.last_transition || 0) - (sA?.last_transition || 0);
+    })
+    .slice(0, 6);
+});
+
+function formatTimeAgo(timestamp: number): string {
+  const seconds = Math.floor((Date.now() - timestamp) / 1000);
+  if (seconds < 60) return `Il y a ${seconds} s`;
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `Il y a ${minutes} min`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Il y a ${hours} h`;
+  return `Il y a ${Math.floor(hours / 24)} j`;
+}
+
 onMounted(async () => {
   workspacesStore.clearSelectedWorkspace();
   await settingsStore.loadPersistedSettings();
   await workspacesStore.fetchWorkspaces();
   
-  // Rafraîchir l'état de tous les workspaces pour l'affichage de l'état
   for (const workspace of workspacesStore.items) {
     await runtimeStore.refreshWorkspaceState(workspace.id);
   }
+
+  // Recharger les activités après les rafraîchissements d'état initiaux
+  await runtimeStore.loadRecentRuns();
 });
 
 function getWorkspaceGlobalStatus(workspaceId: string) {
@@ -36,225 +117,310 @@ function openWorkspaceDetail(workspaceId: string) {
   router.push({ name: "workspace-detail", params: { id: workspaceId } });
 }
 
-function openLastWorkspace() {
-  if (!settingsStore.lastWorkspaceId) {
-    return;
-  }
-  openWorkspaceDetail(settingsStore.lastWorkspaceId);
+function createNewWorkspace() {
+    router.push({ name: 'workspace-create' });
 }
 </script>
 
 <template>
-  <main class="home-container">
-    <header class="hero panel">
-      <p class="eyebrow">Bienvenue</p>
-      <h1>Dev Workspace Manager</h1>
-      <p class="subtitle">Centralisez le lancement et le suivi de vos environnements de développement.</p>
-      <div class="hero-actions">
-        <button
-          class="primary"
-          @click="openLastWorkspace"
-          :disabled="!settingsStore.lastWorkspaceId"
-          aria-label="Ouvrir le dernier workspace"
-          title="Ouvrir le dernier workspace"
-        >
-          🕘
-        </button>
-        <button
-          class="secondary"
-          @click="router.push({ name: 'workspace-create' })"
-          aria-label="Créer un workspace"
-          title="Créer un workspace"
-        >
-          ➕
-        </button>
-      </div>
-    </header>
-
-    <section class="stats-grid">
-      <article class="panel stat-card">
-        <p class="stat-label">Workspaces</p>
-        <p class="stat-value">{{ workspacesStore.items.length }}</p>
-      </article>
-      <article class="panel stat-card">
-        <p class="stat-label">Services configurés</p>
-        <p class="stat-value">{{ totalServices }}</p>
-      </article>
-      <article class="panel stat-card">
-        <p class="stat-label">État UI</p>
-        <p class="stat-value">{{ workspacesStore.items.length === 0 ? "--" : settingsStore.uiState }}</p>
-      </article>
-    </section>
-
-    <section class="panel">
-      <h2>Démarrer rapidement</h2>
-      <p v-if="workspacesStore.isLoading">Chargement des workspaces...</p>
-      <p v-else-if="workspacesStore.error" class="error">{{ workspacesStore.error }}</p>
-      <p v-else-if="workspacesStore.items.length === 0">Aucun workspace enregistré pour le moment.</p>
-      <ul v-else class="workspace-grid">
-        <li v-for="workspace in workspacesStore.items" :key="workspace.id" class="workspace-card">
-          <div style="display: flex; justify-content: space-between; align-items: flex-start;">
-            <h3>{{ workspace.name }}</h3>
-            <StatusIndicator :status="getWorkspaceGlobalStatus(workspace.id)" />
-          </div>
-          <p>{{ workspace.root }}</p>
-          <p v-if="workspace.services.length > 0" class="workspace-services">
-            Services : {{ workspace.services.map((service) => service.name).join(", ") }}
-          </p>
-          <button
-            class="link-button"
-            @click="openWorkspaceDetail(workspace.id)"
-            aria-label="Voir le détail du workspace"
-            title="Voir le détail du workspace"
-          >
-            🔍
+  <div class="dashboard">
+    <div class="main-content">
+      <header class="dashboard-header">
+        <div class="welcome">
+          <h1>Bonjour {{ settingsStore.username.split(' ')[0] }} ! 👋</h1>
+          <p class="subtitle">Gérez tous vos workspaces et leurs services depuis un seul endroit.</p>
+        </div>
+        <div class="header-actions">
+          <button class="btn-primary" @click="createNewWorkspace">
+            <span class="icon">＋</span> Nouveau workspace
           </button>
-        </li>
-      </ul>
-    </section>
-  </main>
+          <div class="header-icons">
+            <button class="icon-btn">🔍</button>
+            <button class="icon-btn badge">🔔<span class="count">3</span></button>
+            <button class="icon-btn">⚙️</button>
+          </div>
+        </div>
+      </header>
+
+      <div class="stats-row">
+        <StatCard 
+          title="Workspaces" 
+          :value="workspacesStore.items.length" 
+          :subValue="activeWorkspaces + ' en cours d\'exécution'" 
+          icon="🟦" 
+          color="#58a6ff" 
+        />
+        <StatCard 
+          title="Services" 
+          :value="totalServices" 
+          :subValue="activeServices + ' en cours'" 
+          icon="🟩" 
+          color="#3fb950" 
+        />
+        <!-- TODO: Ne pas supprimer, sera utilisé plus tard -->
+        <!--
+        <StatCard 
+          title="Environnements" 
+          :value="6" 
+          subValue="4 actifs" 
+          icon="🟪" 
+          color="#bc8cff" 
+        />
+        -->
+        <StatCard 
+          title="Conteneurs" 
+          :value="totalContainers" 
+          :subValue="activeContainers + ' en cours'" 
+          icon="🟨" 
+          color="#d29922" 
+        />
+      </div>
+
+      <section class="section">
+        <div class="section-header">
+          <h2>Workspaces récents</h2>
+          <a href="#" class="view-all">Voir tous</a>
+        </div>
+        <div class="workspace-grid">
+          <WorkspaceCard 
+            v-for="ws in workspacesStore.items.slice(0, 4)" 
+            :key="ws.id" 
+            :workspace="ws" 
+            :status="getWorkspaceGlobalStatus(ws.id)"
+            @click="openWorkspaceDetail"
+          />
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <h2>Aperçu des services</h2>
+          <div class="filters">
+             <select><option>Tous les workspaces</option></select>
+             <select><option>Trier par statut</option></select>
+          </div>
+        </div>
+        <ServiceTable :services="serviceData" />
+      </section>
+
+      <section class="section">
+        <h2>⭐️ Workspaces favoris</h2>
+        <div class="favorites-row">
+          <div v-for="ws in workspacesStore.items.slice(0, 3)" :key="'fav-'+ws.id" class="fav-tag">
+             {{ ws.name }}
+          </div>
+          <button class="add-fav">＋ Ajouter aux favoris</button>
+        </div>
+      </section>
+    </div>
+
+    <RightPanel />
+  </div>
 </template>
 
 <style scoped>
-.home-container {
-  max-width: 1200px;
+.dashboard {
+  display: flex;
+  padding: 2rem;
+  gap: 2rem;
+  width: 100%;
+  max-width: 1600px;
   margin: 0 auto;
-  padding: 2rem 1.25rem 2.5rem;
-  color: #14213d;
 }
 
-.panel {
-  border: 1px solid #d9e2f1;
-  border-radius: 14px;
-  background: #fff;
-  box-shadow: 0 10px 24px rgba(17, 24, 39, 0.06);
+.main-content {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2.5rem;
 }
 
-.hero {
-  padding: 1.6rem;
-  background: linear-gradient(135deg, #f7faff, #eef4ff);
-  margin-bottom: 1.25rem;
+.dashboard-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
 }
 
-.eyebrow {
-  margin: 0;
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #4f5d75;
-}
-
-h1 {
-  margin: 0.2rem 0 0;
+.welcome h1 {
+  font-size: 1.8rem;
+  margin-bottom: 0.5rem;
+  color: #f0f6fc;
 }
 
 .subtitle {
-  margin: 0.45rem 0 0;
-  color: #4f5d75;
+  color: #8b949e;
+  font-size: 0.95rem;
 }
 
-.hero-actions {
+.header-actions {
   display: flex;
-  gap: 0.6rem;
-  margin-top: 1rem;
+  align-items: center;
+  gap: 1.5rem;
+  flex-wrap: wrap;
 }
 
-button {
-  border: 1px solid #396cd8;
-  border-radius: 10px;
-  padding: 0.58rem 0.85rem;
+.btn-primary {
+  background-color: #1f6feb;
+  color: white;
+  border: none;
+  padding: 0.6rem 1.2rem;
+  border-radius: 8px;
   font-weight: 600;
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
   cursor: pointer;
 }
 
-.primary {
-  background: #396cd8;
-  color: #fff;
+.header-icons {
+  display: flex;
+  gap: 0.5rem;
 }
 
-.secondary {
-  background: #fff;
-  color: #396cd8;
+.icon-btn {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  color: #f0f6fc;
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  position: relative;
 }
 
-button:disabled {
-  opacity: 0.6;
-  cursor: not-allowed;
+.icon-btn.badge .count {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  background-color: #f85149;
+  color: white;
+  font-size: 0.7rem;
+  padding: 2px 5px;
+  border-radius: 10px;
+  border: 2px solid #0d1117;
 }
 
-.stats-grid {
+.stats-row {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
   gap: 1rem;
-  margin-bottom: 1rem;
 }
 
-.stat-card {
-  padding: 1rem 1.1rem;
+@media (max-width: 600px) {
+  .stats-row {
+    grid-template-columns: 1fr;
+  }
 }
 
-.stat-label {
-  margin: 0;
-  color: #4f5d75;
-  font-size: 0.86rem;
+.section-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.25rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.stat-value {
-  margin: 0.35rem 0 0;
-  font-size: 1.5rem;
-  font-weight: 700;
+.filters {
+  display: flex;
+  gap: 0.75rem;
+  flex-wrap: wrap;
 }
 
-section.panel {
-  padding: 1.2rem;
-  margin-bottom: 1rem;
+.section h2 {
+  font-size: 1.1rem;
+  color: #f0f6fc;
+  font-weight: 600;
+}
+
+.view-all {
+  color: #58a6ff;
+  font-size: 0.85rem;
+  text-decoration: none;
 }
 
 .workspace-grid {
-  list-style: none;
-  padding: 0;
-  margin: 0.75rem 0 0;
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.9rem;
+  grid-template-columns: repeat(auto-fill, minmax(250px, 1fr));
+  gap: 1rem;
 }
 
-.workspace-card {
-  border: 1px solid #dce7fa;
-  border-radius: 12px;
-  padding: 0.9rem;
-  background: #f8fbff;
+.filters {
+  display: flex;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.workspace-card h3 {
-  margin-top: 0;
-  margin-bottom: 0.35rem;
+.filters select {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  padding: 0.4rem 0.8rem;
+  border-radius: 6px;
+  font-size: 0.85rem;
 }
 
-.workspace-card p {
-  margin: 0 0 0.75rem;
-  color: #4f5d75;
+.favorites-row {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1rem;
+}
+
+.fav-tag {
+  background-color: #161b22;
+  border: 1px solid #30363d;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
   font-size: 0.9rem;
+  color: #f0f6fc;
 }
 
-.workspace-services {
-  font-weight: 600;
+.add-fav {
+  background: none;
+  border: 1px dashed #30363d;
+  color: #8b949e;
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
 }
 
-.link-button {
-  background: #fff;
-  color: #396cd8;
+@media (max-width: 1200px) {
+  .dashboard {
+    flex-direction: column;
+    padding: 1rem;
+  }
 }
 
-.error {
-  color: #c40000;
-  font-weight: 600;
-}
+@media (max-width: 768px) {
+  .dashboard-header {
+    flex-direction: column;
+    gap: 1.5rem;
+  }
+  
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
+    gap: 1rem;
+  }
 
-@media (max-width: 900px) {
-  .stats-grid,
-  .workspace-grid {
-    grid-template-columns: 1fr;
+  .section-header {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  .filters {
+    width: 100%;
+  }
+
+  .filters select {
+    flex-grow: 1;
+    min-width: 150px;
   }
 }
 </style>

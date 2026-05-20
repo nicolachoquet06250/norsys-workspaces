@@ -7,11 +7,38 @@ type UiState = "idle" | "stopping" | "starting" | "running" | "error";
 export const useSettingsStore = defineStore("settings", () => {
   const uiState = ref<UiState>("idle");
   const lastWorkspaceId = ref<string | null>(null);
+  const username = ref<string>("Utilisateur");
+  const email = ref<string>("utilisateur@example.com");
+  const isDockerConnected = ref<boolean>(false);
 
   async function loadPersistedSettings() {
     const persisted = await invoke<{ last_workspace_id?: string | null; ui_state?: UiState }>("get_persisted_settings");
     lastWorkspaceId.value = persisted.last_workspace_id ?? null;
     uiState.value = persisted.ui_state ?? "idle";
+    
+    try {
+      username.value = await invoke<string>("get_os_username");
+    } catch (e) {
+      console.error("Failed to get OS username", e);
+    }
+
+    try {
+      email.value = await invoke<string>("get_os_email");
+    } catch (e) {
+      console.error("Failed to get OS email, falling back to generated one", e);
+      email.value = `${username.value.toLowerCase().replace(/\s+/g, ".")}@example.com`;
+    }
+
+    await checkDockerConnection();
+  }
+
+  async function checkDockerConnection() {
+    try {
+      isDockerConnected.value = await invoke<boolean>("is_docker_connected");
+    } catch (e) {
+      console.error("Failed to check Docker connection", e);
+      isDockerConnected.value = false;
+    }
   }
 
   async function persistSettings() {
@@ -36,9 +63,13 @@ export const useSettingsStore = defineStore("settings", () => {
   return {
     uiState,
     lastWorkspaceId,
+    username,
+    email,
+    isDockerConnected,
     loadPersistedSettings,
     persistSettings,
     setUiState,
     setLastWorkspace,
+    checkDockerConnection,
   };
 });

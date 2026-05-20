@@ -9,6 +9,7 @@ export type ServiceRuntimeStatus =
 
 export interface ServiceConfig {
   name: string;
+  display_name?: string;
   command: string;
   cwd?: string;
   depends_on: string[];
@@ -28,8 +29,10 @@ export interface WorkspaceConfig {
 
 export interface ServiceRuntimeState {
   name: string;
+  display_name?: string;
   status: ServiceRuntimeStatus;
   message?: string;
+  last_transition?: number;
 }
 
 export interface RuntimeWorkspaceState {
@@ -42,4 +45,21 @@ export interface RuntimeWorkspaceState {
 export interface WorkspaceStartResponse {
   workspace_id: string;
   status: RuntimeWorkspaceState;
+}
+
+export interface RecentRun {
+  id: number;
+  workspace_id: string;
+  service_name: string | null;
+  action: string;
+  status: string;
+  created_at: string;
+}
+
+export interface SystemStats {
+  cpu_usage: number;
+  memory_used: number;
+  memory_total: number;
+  disk_used: number;
+  disk_total: number;
 }

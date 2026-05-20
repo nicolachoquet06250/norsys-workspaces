@@ -53,6 +53,33 @@ fn open_db() -> Result<Connection, String> {
     Connection::open(path).map_err(|e| format!("Impossible d'ouvrir SQLite: {e}"))
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RecentRun {
+    pub id: i32,
+    pub workspace_id: String,
+    pub service_name: Option<String>,
+    pub action: String,
+    pub status: String,
+    pub created_at: String,
+}
+
+fn ensure_recent_runs_service_name_column(conn: &Connection) -> Result<(), String> {
+    match conn.execute(
+        "ALTER TABLE recent_runs ADD COLUMN service_name TEXT",
+        [],
+    ) {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            let error_text = e.to_string();
+            if error_text.contains("duplicate column name") {
+                Ok(())
+            } else {
+                Err(format!("Impossible d'ajouter la colonne service_name: {error_text}"))
+            }
+        }
+    }
+}
+
 pub fn init_schema() -> Result<(), String> {
     let conn = open_db()?;
     conn.execute_batch(
@@ -67,6 +94,7 @@ pub fn init_schema() -> Result<(), String> {
         CREATE TABLE IF NOT EXISTS recent_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             workspace_id TEXT NOT NULL,
+            service_name TEXT,
             action TEXT NOT NULL,
             status TEXT NOT NULL,
             created_at TEXT NOT NULL
@@ -91,6 +119,7 @@ pub fn init_schema() -> Result<(), String> {
     .map_err(|e| format!("Impossible d'initialiser le schéma SQLite: {e}"))?;
 
     ensure_workspaces_services_column(&conn)?;
+    ensure_recent_runs_service_name_column(&conn)?;
     Ok(())
 }
 
@@ -219,14 +248,48 @@ pub fn load_settings() -> Result<PersistedSettings, String> {
     })
 }
 
-pub fn add_recent_run(workspace_id: &str, action: &str, status: &str) -> Result<(), String> {
+pub fn add_recent_run(workspace_id: &str, service_name: Option<&str>, action: &str, status: &str) -> Result<(), String> {
     let conn = open_db()?;
     conn.execute(
-        "INSERT INTO recent_runs(workspace_id, action, status, created_at) VALUES(?1, ?2, ?3, ?4)",
-        params![workspace_id, action, status, now_unix()],
+        "INSERT INTO recent_runs(workspace_id, service_name, action, status, created_at) VALUES(?1, ?2, ?3, ?4, ?5)",
+        params![workspace_id, service_name, action, status, now_unix()],
     )
     .map_err(|e| e.to_string())?;
     Ok(())
+}
+
+pub fn get_recent_runs(limit: usize) -> Result<Vec<RecentRun>, String> {
+    let conn = open_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, workspace_id, service_name, action, status, created_at
+             FROM (
+                 SELECT * FROM recent_runs WHERE service_name IS NOT NULL ORDER BY id DESC
+             )
+             GROUP BY workspace_id, service_name
+             ORDER BY id DESC
+             LIMIT ?1",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map([limit], |row| {
+            Ok(RecentRun {
+                id: row.get(0)?,
+                workspace_id: row.get(1)?,
+                service_name: row.get(2)?,
+                action: row.get(3)?,
+                status: row.get(4)?,
+                created_at: row.get(5)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut results = Vec::new();
+    for row in rows {
+        results.push(row.map_err(|e| e.to_string())?);
+    }
+    Ok(results)
 }
 
 pub fn save_snapshot(snapshot: &Snapshot) -> Result<(), String> {

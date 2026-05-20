@@ -19,7 +19,7 @@ use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
 #[cfg(windows)]
 const CREATE_NO_WINDOW: u32 = 0x08000000;
 
-fn apply_production_process_flags(cmd: &mut Command) {
+pub(crate) fn apply_production_process_flags(cmd: &mut Command) {
     #[cfg(windows)]
     // CREATE_NO_WINDOW: 0x08000000 (Ne pas créer de nouvelle fenêtre console)
     cmd.creation_flags(CREATE_NO_WINDOW);
@@ -43,6 +43,7 @@ pub enum ServiceRuntimeStatus {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServiceRuntimeState {
     pub name: String,
+    pub display_name: Option<String>,
     pub status: ServiceRuntimeStatus,
     pub message: Option<String>,
 }
@@ -1181,6 +1182,7 @@ fn build_compose_runtime_state(
                 let (status, message) = match probe_status {
                     TcpProbeStatus::Ready => (ServiceRuntimeStatus::Running, "Service prêt et accessible".to_string()),
                     TcpProbeStatus::Loading => {
+                        // ...
                         // Vérifier si on attend une dépendance
                         let mut waiting_for_dep = None;
                         if let Some(deps) = depends_on_map.get(name) {
@@ -1230,6 +1232,7 @@ fn build_compose_runtime_state(
 
                 ServiceRuntimeState {
                     name: name.clone(),
+                    display_name: Some(crate::workspace_loader::to_human_friendly(name)),
                     status,
                     message: Some(message),
                 }
@@ -1241,6 +1244,7 @@ fn build_compose_runtime_state(
                 let is_failed = matches!(state.as_str(), "exited" | "dead") && exit_code.unwrap_or(0) != 0;
                 ServiceRuntimeState {
                     name: name.clone(),
+                    display_name: Some(crate::workspace_loader::to_human_friendly(name)),
                     status: if is_failed {
                         ServiceRuntimeStatus::Failed
                     } else {
@@ -1502,6 +1506,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
                         launched.insert(service.name.clone(), child);
                         states.push(ServiceRuntimeState {
                             name: service.name.clone(),
+                            display_name: service.display_name.clone(),
                             status: ServiceRuntimeStatus::Starting,
                             message: Some("Service démarré (parallèle), en attente d'accessibilité".to_string()),
                         });
@@ -1509,6 +1514,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
                     Err(error) => {
                         states.push(ServiceRuntimeState {
                             name: service.name.clone(),
+                            display_name: service.display_name.clone(),
                             status: ServiceRuntimeStatus::Failed,
                             message: Some(error.clone()),
                         });
@@ -1530,6 +1536,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
                         launched.insert(service.name.clone(), child);
                         states.push(ServiceRuntimeState {
                             name: service.name.clone(),
+                            display_name: service.display_name.clone(),
                             status: ServiceRuntimeStatus::Starting,
                             message: Some("Service démarré (séquentiel), en attente d'accessibilité".to_string()),
                         });
@@ -1537,6 +1544,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
                     Err(error) => {
                         states.push(ServiceRuntimeState {
                             name: service.name.clone(),
+                            display_name: service.display_name.clone(),
                             status: ServiceRuntimeStatus::Failed,
                             message: Some(error.clone()),
                         });
@@ -1666,6 +1674,7 @@ pub fn attach_workspace_runtime(workspace: &WorkspaceConfig) -> Result<RuntimeWo
         .iter()
         .map(|service| ServiceRuntimeState {
             name: service.name.clone(),
+            display_name: service.display_name.clone(),
             status: ServiceRuntimeStatus::Stopped,
             message: Some("Service non démarré".to_string()),
         })
@@ -1891,6 +1900,7 @@ mod tests {
         let services = vec![
             ServiceConfig {
                 name: "api".to_string(),
+                display_name: None,
                 command: "echo api".to_string(),
                 cwd: None,
                 depends_on: vec![],
@@ -1899,6 +1909,7 @@ mod tests {
             },
             ServiceConfig {
                 name: "web".to_string(),
+                display_name: None,
                 command: "echo web".to_string(),
                 cwd: None,
                 depends_on: vec!["api".to_string()],
@@ -1927,6 +1938,7 @@ mod tests {
     fn derives_stopped_when_no_service_is_running() {
         let services = vec![ServiceRuntimeState {
             name: "echo".to_string(),
+            display_name: None,
             status: ServiceRuntimeStatus::Stopped,
             message: Some("terminé".to_string()),
         }];
@@ -1940,11 +1952,13 @@ mod tests {
         let services = vec![
             ServiceRuntimeState {
                 name: "api".to_string(),
+                display_name: None,
                 status: ServiceRuntimeStatus::Starting,
                 message: Some("en attente".to_string()),
             },
             ServiceRuntimeState {
                 name: "worker".to_string(),
+                display_name: None,
                 status: ServiceRuntimeStatus::Running,
                 message: Some("ok".to_string()),
             },
@@ -1959,11 +1973,13 @@ mod tests {
         let services = vec![
             ServiceRuntimeState {
                 name: "api".to_string(),
+                display_name: None,
                 status: ServiceRuntimeStatus::Starting,
                 message: Some("chargement".to_string()),
             },
             ServiceRuntimeState {
                 name: "worker".to_string(),
+                display_name: None,
                 status: ServiceRuntimeStatus::Stopped,
                 message: Some("arrêté".to_string()),
             },
