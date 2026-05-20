@@ -3,6 +3,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt as UnixCommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +15,26 @@ use std::thread;
 use std::time::Duration;
 
 use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
+
+#[cfg(windows)]
+const DETACHED_PROCESS: u32 = 0x00000008;
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn apply_production_process_flags(cmd: &mut Command) {
+    #[cfg(debug_assertions)]
+    let _ = cmd;
+
+    #[cfg(all(windows, not(debug_assertions)))]
+    {
+        cmd.creation_flags(DETACHED_PROCESS | CREATE_NO_WINDOW);
+    }
+
+    #[cfg(all(unix, not(debug_assertions)))]
+    {
+        cmd.process_group(0);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -166,7 +190,9 @@ fn has_compose_file(workspace_root: &str) -> bool {
 }
 
 fn has_wsl_binary() -> bool {
-    let detected = Command::new("wsl")
+    let mut cmd = Command::new("wsl");
+    apply_production_process_flags(&mut cmd);
+    let detected = cmd
         .arg("--help")
         .stdin(Stdio::null())
         .stdout(Stdio::null())
@@ -228,6 +254,8 @@ fn run_compose_command(workspace_root: &str, command: DockerComposeCommand, args
         format!("{command_label} {}", args.join(" "))
     };
     eprintln!("[orchestrator] exécution compose: `{display_cmd}` (cwd: {workspace_root})");
+
+    apply_production_process_flags(&mut cmd);
 
     cmd.args(args).current_dir(workspace_root).stdin(Stdio::null());
     let output = cmd
@@ -657,6 +685,8 @@ fn run_http_probe(port: u16) -> Result<TcpProbeStatus, String> {
     } else {
         Command::new("curl")
     };
+
+    apply_production_process_flags(&mut cmd);
 
     // -I: HEAD request, -s: silent, -o /dev/null: discard output, -w %{http_code}: print only status code
     // --connect-timeout 2: avoid hanging
@@ -1323,6 +1353,8 @@ fn build_child_command(service: &ServiceConfig, workspace: &WorkspaceConfig, env
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    apply_production_process_flags(&mut cmd);
 
     for (k, v) in env {
         cmd.env(k, v);
