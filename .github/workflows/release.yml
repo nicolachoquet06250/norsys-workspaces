@@ -98,4 +98,4 @@ jobs:
           releaseBody: ${{ steps.commit_message.outputs.message }}
           releaseDraft: false
           prerelease: false
-          includeUpdaterJson: true # Force la génération du fichier latest.json
+          includeUpdaterJson: true
