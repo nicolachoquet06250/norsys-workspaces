@@ -1,7 +1,7 @@
 // Prevents additional console window on Windows in release, DO NOT REMOVE!!
-#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+#![cfg_attr(windows, windows_subsystem = "windows")]
 
-use bollard::Docker;
+/*use bollard::Docker;
 use std::env;
 
 fn connect_docker() -> anyhow::Result<Docker> {
@@ -21,12 +21,12 @@ fn connect_docker() -> anyhow::Result<Docker> {
     };
 
     Ok(docker)
-}
+}*/
 
 fn main() {
-    let docker = connect_docker().expect("Impossible de se connecter à docker");
+    /*let docker = connect_docker().expect("Impossible de se connecter à docker");
 
-    eprintln!("Docker client initialized successfully {docker:?}");
+    eprintln!("Docker client initialized successfully {docker:?}");*/
 
     dev_workspace_manager_lib::run()
 }

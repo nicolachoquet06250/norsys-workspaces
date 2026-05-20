@@ -3,6 +3,10 @@ use serde_json::Value;
 use std::collections::HashMap;
 use std::collections::{HashSet, VecDeque};
 use std::io::{BufRead, BufReader};
+#[cfg(unix)]
+use std::os::unix::process::CommandExt;
+#[cfg(windows)]
+use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -11,6 +15,21 @@ use std::thread;
 use std::time::Duration;
 
 use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
+
+#[cfg(windows)]
+const CREATE_NO_WINDOW: u32 = 0x08000000;
+
+fn apply_production_process_flags(cmd: &mut Command) {
+    if !cfg!(debug_assertions) {
+        #[cfg(windows)]
+        // CREATE_NO_WINDOW: 0x08000000 (Ne pas créer de nouvelle fenêtre console)
+        cmd.creation_flags(CREATE_NO_WINDOW);
+
+        #[cfg(unix)]
+        // Mettre le processus dans son propre groupe de processus pour le détacher de la session courante
+        cmd.process_group(0);
+    }
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -166,9 +185,10 @@ fn has_compose_file(workspace_root: &str) -> bool {
 }
 
 fn has_wsl_binary() -> bool {
-    let detected = Command::new("wsl")
+    let mut cmd = Command::new("wsl");
+    apply_production_process_flags(&mut cmd);
+    let detected = cmd
         .arg("--help")
-        .stdin(Stdio::null())
         .stdout(Stdio::null())
         .stderr(Stdio::null())
         .status()
@@ -229,7 +249,9 @@ fn run_compose_command(workspace_root: &str, command: DockerComposeCommand, args
     };
     eprintln!("[orchestrator] exécution compose: `{display_cmd}` (cwd: {workspace_root})");
 
-    cmd.args(args).current_dir(workspace_root).stdin(Stdio::null());
+    apply_production_process_flags(&mut cmd);
+
+    cmd.args(args).current_dir(workspace_root);
     let output = cmd
         .output()
         .map_err(|e| format!("Impossible d'exécuter docker compose: {e}"))?;
@@ -657,6 +679,8 @@ fn run_http_probe(port: u16) -> Result<TcpProbeStatus, String> {
     } else {
         Command::new("curl")
     };
+
+    apply_production_process_flags(&mut cmd);
 
     // -I: HEAD request, -s: silent, -o /dev/null: discard output, -w %{http_code}: print only status code
     // --connect-timeout 2: avoid hanging
@@ -1320,9 +1344,10 @@ fn build_child_command(service: &ServiceConfig, workspace: &WorkspaceConfig, env
         .unwrap_or_else(|| PathBuf::from(&workspace.root));
 
     cmd.current_dir(cwd)
-        .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped());
+
+    apply_production_process_flags(&mut cmd);
 
     for (k, v) in env {
         cmd.env(k, v);
