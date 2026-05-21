@@ -140,8 +140,13 @@ function navigate(path: string) {
   flex: 1;
   min-height: 0;
   overflow-y: auto;
+  overflow-x: hidden;
   margin-bottom: 1rem;
   padding-right: 0.25rem;
+}
+
+.sidebar.is-collapsed .menu-scroll {
+  padding-right: 0;
 }
 
 .menu-secondary {
@@ -166,6 +171,14 @@ function navigate(path: string) {
 .sidebar.is-collapsed {
   width: 70px;
   padding: 1.5rem 0.5rem;
+}
+
+@media (min-width: 769px) {
+  .sidebar:not(.is-collapsed) {
+    min-width: 260px;
+    max-width: 260px;
+    flex: 0 0 260px;
+  }
 }
 
 .logo-text, 
