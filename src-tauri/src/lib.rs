@@ -288,6 +288,8 @@ fn stop_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> R
     runtime_guard.insert(workspace_id.clone(), stopped_state.clone());
     drop(runtime_guard);
 
+    orchestrator::stop_workspace_probes(&workspace_id);
+
     persistence::add_recent_run(&workspace_id, Some("_all_"), "stop", "success")?;
 
     Ok(stopped_state)

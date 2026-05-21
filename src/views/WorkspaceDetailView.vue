@@ -166,14 +166,10 @@ watch(routeWorkspaceId, applyRouteSelection);
 
 watch(
   () => workspacesStore.selectedWorkspaceId,
-  async (workspaceId, previousWorkspaceId) => {
+  async (workspaceId) => {
     if (!workspaceId) {
       stopRuntimePolling();
       return;
-    }
-
-    if (previousWorkspaceId && previousWorkspaceId !== workspaceId) {
-      await runtimeStore.stopWorkspaceProbes(previousWorkspaceId);
     }
 
     try {
