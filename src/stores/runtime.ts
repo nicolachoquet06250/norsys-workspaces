@@ -1,5 +1,6 @@
 import {defineStore} from "pinia";
 import {invoke} from "@tauri-apps/api/core";
+import {listen, type UnlistenFn} from "@tauri-apps/api/event";
 import {ref} from "vue";
 import type {RecentRun, RuntimeWorkspaceState, SystemStats, WorkspaceStartResponse} from "../types";
 
@@ -10,6 +11,12 @@ export const useRuntimeStore = defineStore("runtime", () => {
   const isStopping = ref(false);
   const error = ref<string | null>(null);
   const systemStats = ref<SystemStats | null>(null);
+  let dockerEventsUnlisten: UnlistenFn | null = null;
+
+  type DockerRuntimeEventPayload = {
+    refreshRuntime?: boolean;
+    runtimeStates?: RuntimeWorkspaceState[];
+  };
 
   function setWorkspaceStarting(workspaceId: string, serviceNames: string[]) {
     const now = Date.now();
@@ -86,6 +93,55 @@ export const useRuntimeStore = defineStore("runtime", () => {
     byWorkspaceId.value[workspaceId] = newState;
   }
 
+  function applyDockerRuntimePayload(payload: DockerRuntimeEventPayload) {
+    if (!payload.refreshRuntime || !Array.isArray(payload.runtimeStates)) {
+      return;
+    }
+
+    const now = Date.now();
+    const nextByWorkspaceId: Record<string, RuntimeWorkspaceState> = {
+      ...byWorkspaceId.value,
+    };
+
+    for (const newState of payload.runtimeStates) {
+      const oldState = byWorkspaceId.value[newState.workspace_id];
+      const services = newState.services.map((newService) => {
+        const oldService = oldState?.services.find((service) => service.name === newService.name);
+        const statusChanged = oldService && oldService.status !== newService.status;
+        return {
+          ...newService,
+          last_transition: statusChanged ? now : oldService?.last_transition,
+        };
+      });
+
+      nextByWorkspaceId[newState.workspace_id] = {
+        ...newState,
+        services,
+      };
+    }
+
+    byWorkspaceId.value = nextByWorkspaceId;
+  }
+
+  async function initDockerEventsListener() {
+    if (dockerEventsUnlisten) {
+      return;
+    }
+
+    dockerEventsUnlisten = await listen("docker:event", (event) => {
+      applyDockerRuntimePayload(event.payload as DockerRuntimeEventPayload);
+    });
+  }
+
+  function disposeDockerEventsListener() {
+    if (!dockerEventsUnlisten) {
+      return;
+    }
+
+    dockerEventsUnlisten();
+    dockerEventsUnlisten = null;
+  }
+
   async function stopWorkspace(workspaceId: string) {
     isStopping.value = true;
     error.value = null;
@@ -152,6 +208,8 @@ export const useRuntimeStore = defineStore("runtime", () => {
     setWorkspaceStopping,
     startWorkspace,
     refreshWorkspaceState,
+    initDockerEventsListener,
+    disposeDockerEventsListener,
     stopWorkspace,
     stopWorkspaceProbes,
     loadRecentRuns,

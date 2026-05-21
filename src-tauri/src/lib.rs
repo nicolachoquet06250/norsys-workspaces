@@ -13,7 +13,7 @@ use persistence::PersistedSettings;
 use serde::{Deserialize, Serialize};
 use snapshot_manager::Snapshot;
 use std::process::Command;
-use tauri::Manager;
+use tauri::{AppHandle, Emitter, Manager};
 use workspace_loader::WorkspaceConfig;
 
 #[derive(Default)]
@@ -72,6 +72,113 @@ fn list_workspace_service_volumes() -> Result<Vec<workspace_loader::WorkspaceSer
 }
 
 #[tauri::command]
+fn get_default_wsl_distro() -> Result<String, String> {
+    let mut cmd = Command::new("wsl");
+    orchestrator::apply_production_process_flags(&mut cmd);
+
+    let output = cmd
+        .arg("--status")
+        .output()
+        .map_err(|e| e.to_string())?;
+
+    let stdout = decode_command_stdout(&output.stdout);
+
+    let distro = stdout
+        .lines()
+        .next()
+        .and_then(|line| line.split_once(':'))
+        .map(|(_, value)| value.trim().to_string())
+        .ok_or_else(|| "Impossible de lire la distribution WSL par défaut".to_string())?;
+
+    Ok(distro)
+}
+
+fn decode_command_stdout(bytes: &[u8]) -> String {
+    if bytes.is_empty() {
+        return String::new();
+    }
+
+    let utf16_candidate = if bytes.len() % 2 == 0 {
+        let odd_zeros = bytes.iter().skip(1).step_by(2).filter(|&&b| b == 0).count();
+        let odd_count = bytes.len() / 2;
+        odd_count > 0 && (odd_zeros * 100 / odd_count) >= 30
+    } else {
+        false
+    };
+
+    if utf16_candidate {
+        let words = bytes
+            .chunks_exact(2)
+            .map(|chunk| u16::from_le_bytes([chunk[0], chunk[1]]))
+            .collect::<Vec<_>>();
+
+        if let Ok(decoded) = String::from_utf16(&words) {
+            return decoded;
+        }
+    }
+
+    String::from_utf8_lossy(bytes).to_string()
+}
+
+fn build_docker_event_payload(state: &CombinedState) -> serde_json::Value {
+    let workspaces = workspace_loader::list_workspaces().unwrap_or_default();
+    let runtime_states = state
+        .app
+        .runtime
+        .lock()
+        .map(|runtime| runtime.values().cloned().collect::<Vec<_>>())
+        .unwrap_or_default();
+
+    serde_json::json!({
+        "type": "container",
+        "action": "sync",
+        "refreshRuntime": true,
+        "refreshVolumes": false,
+        "workspaces": workspaces,
+        "runtimeStates": runtime_states
+    })
+}
+
+fn build_docker_start_event_payload(workspace_id: &str, state: &CombinedState) -> serde_json::Value {
+    let volumes = workspace_loader::list_workspace_service_volumes()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|volume| volume.workspace_id == workspace_id)
+        .collect::<Vec<_>>();
+    let runtime_state = state
+        .app
+        .runtime
+        .lock()
+        .ok()
+        .and_then(|runtime| runtime.get(workspace_id).cloned());
+
+    serde_json::json!({
+        "type": "container",
+        "action": "start",
+        "workspaceId": workspace_id,
+        "refreshRuntime": true,
+        "refreshVolumes": true,
+        "runtimeStates": runtime_state.into_iter().collect::<Vec<_>>(),
+        "volumes": volumes
+    })
+}
+
+fn spawn_docker_events(app: AppHandle) {
+    tauri::async_runtime::spawn(async move {
+        loop {
+            let payload = {
+                let state = app.state::<CombinedState>();
+                build_docker_event_payload(&state)
+            };
+
+            let _ = app.emit("docker:event", payload);
+
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+        }
+    });
+}
+
+#[tauri::command]
 fn open_path_in_file_manager(path: String) -> Result<(), String> {
     let trimmed_path = path.trim();
     if trimmed_path.is_empty() {
@@ -109,7 +216,11 @@ fn save_persisted_settings(settings: PersistedSettings) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn start_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> Result<WorkspaceStartResponse, String> {
+fn start_workspace(
+    workspace_id: String,
+    state: tauri::State<CombinedState>,
+    app: AppHandle,
+) -> Result<WorkspaceStartResponse, String> {
     let workspace = workspace_loader::list_workspaces()?
         .into_iter()
         .find(|w| w.id == workspace_id)
@@ -134,6 +245,9 @@ fn start_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> 
             "failed"
         },
     )?;
+
+    let start_payload = build_docker_start_event_payload(&workspace_id, &state);
+    let _ = app.emit("docker:event", start_payload);
 
     Ok(WorkspaceStartResponse {
         workspace_id,
@@ -357,6 +471,10 @@ pub fn run() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_opener::init())
         .manage(CombinedState::default())
+        .setup(|app| {
+            spawn_docker_events(app.handle().clone());
+            Ok(())
+        })
         .invoke_handler(tauri::generate_handler![
             list_workspaces,
             create_workspace,
@@ -364,6 +482,7 @@ pub fn run() {
             detect_docker_services,
             list_workspace_service_images,
             list_workspace_service_volumes,
+            get_default_wsl_distro,
             open_path_in_file_manager,
             get_persisted_settings,
             save_persisted_settings,

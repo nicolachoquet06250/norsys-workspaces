@@ -1,22 +1,21 @@
 <script setup lang="ts">
 import { invoke } from "@tauri-apps/api/core";
-import { computed, onMounted, onUnmounted, ref } from "vue";
-import type { WorkspaceServiceVolume } from "../types";
+import { computed, ref } from "vue";
+import { useVolumesStore } from "../stores/volumes";
 
-const volumes = ref<WorkspaceServiceVolume[]>([]);
-const isLoading = ref(false);
-const error = ref<string | null>(null);
+const volumesStore = useVolumesStore();
 const actionError = ref<string | null>(null);
 const currentPage = ref(1);
 const pageSize = 10;
-let refreshHandle: number | null = null;
 
-const hasVolumes = computed(() => volumes.value.length > 0);
-const totalPages = computed(() => Math.max(1, Math.ceil(volumes.value.length / pageSize)));
+const hasVolumes = computed(() => volumesStore.hasVolumes);
+const totalPages = computed(() => Math.max(1, Math.ceil(volumesStore.items.length / pageSize)));
+const isLoading = computed(() => volumesStore.isLoading);
+const error = computed(() => volumesStore.error);
 
 const paginatedVolumes = computed(() => {
   const start = (currentPage.value - 1) * pageSize;
-  return volumes.value.slice(start, start + pageSize);
+  return volumesStore.items.slice(start, start + pageSize);
 });
 
 function goToPreviousPage() {
@@ -39,6 +38,13 @@ async function openVolumeDirectory(path: string | null) {
   actionError.value = null;
   try {
     path = path.replace(/.\//, '');
+    if (!path.startsWith('/mnt/')) {
+      // const defaultWslDistrib = await invoke<string>('get_default_wsl_distro');
+      // path = `\\\\wsl$\\${defaultWslDistrib}${path}`;
+      path = path.replace(/\\/g, '/');
+      console.log(path);
+      return
+    }
     await invoke("open_path_in_file_manager", { path });
     console.log(path);
   } catch (openError) {
@@ -46,32 +52,6 @@ async function openVolumeDirectory(path: string | null) {
   }
 }
 
-async function loadVolumes() {
-  isLoading.value = true;
-  error.value = null;
-
-  try {
-    volumes.value = await invoke<WorkspaceServiceVolume[]>("list_workspace_service_volumes");
-  } catch (loadError) {
-    error.value = loadError instanceof Error ? loadError.message : "Impossible de charger les volumes";
-  } finally {
-    isLoading.value = false;
-  }
-}
-
-onMounted(async () => {
-  await loadVolumes();
-  refreshHandle = window.setInterval(() => {
-    void loadVolumes();
-  }, 2000);
-});
-
-onUnmounted(() => {
-  if (refreshHandle !== null) {
-    window.clearInterval(refreshHandle);
-    refreshHandle = null;
-  }
-});
 </script>
 
 <template>
@@ -88,44 +68,49 @@ onUnmounted(() => {
       <div v-else-if="hasVolumes" class="volumes-table-wrapper">
         <p v-if="actionError" class="state state-error">{{ actionError }}</p>
 
-        <table class="volumes-table">
-          <thead>
-            <tr>
-              <th>Volume</th>
-              <th>Service</th>
-              <th>Workspace</th>
-              <th>Répertoire</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr v-for="item in paginatedVolumes" :key="`${item.workspace_id}-${item.service_name}-${item.volume}-${item.host_path}`">
-              <td>{{ item.volume }}</td>
-              <td>{{ item.service_name }}</td>
-              <td>
-                <router-link
-                  class="workspace-link"
-                  :to="{ name: 'workspace-detail', params: { id: item.workspace_id } }"
-                >
-                  {{ item.workspace_name }}
-                </router-link>
-              </td>
-              <td>
-                <button
-                  v-if="item.host_path"
-                  class="link-btn"
-                  @click="openVolumeDirectory(item.host_path)"
-                >
-                  Ouvrir le dossier
-                </button>
-                <span v-else class="muted">N/A</span>
-              </td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="volumes-table-scroll">
+          <table class="volumes-table">
+            <thead>
+              <tr>
+                <th>Volume</th>
+                <th>Service</th>
+                <th>Workspace</th>
+                <th>Répertoire</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="item in paginatedVolumes" :key="`${item.workspace_id}-${item.service_name}-${item.volume}-${item.host_path}`">
+                <td>{{ item.volume }}</td>
+                <td>{{ item.service_name }}</td>
+                <td>
+                  <router-link
+                    class="workspace-link"
+                    :to="{ name: 'workspace-detail', params: { id: item.workspace_id } }"
+                  >
+                    {{ item.workspace_name }}
+                  </router-link>
+                </td>
+                <td>
+                  <template v-if="item.host_path">
+                    <button
+                        v-if="item.host_path.startsWith('C:\\')"
+                        class="link-btn"
+                        @click="openVolumeDirectory(item.host_path)"
+                    >
+                      Ouvrir le dossier
+                    </button>
+                    <span v-else>{{ item.host_path.replace(/\\/g, '/') }}</span>
+                  </template>
+                  <span v-else class="muted">N/A</span>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <div class="pagination">
           <button class="btn-pagination" :disabled="currentPage === 1" @click="goToPreviousPage">Précédent</button>
-          <span>Page {{ currentPage }} / {{ totalPages }} · {{ volumes.length }} volume(s)</span>
+          <span>Page {{ currentPage }} / {{ totalPages }} · {{ volumesStore.items.length }} volume(s)</span>
           <button class="btn-pagination" :disabled="currentPage === totalPages" @click="goToNextPage">Suivant</button>
         </div>
       </div>
@@ -139,10 +124,13 @@ onUnmounted(() => {
 
 <style scoped>
 .volumes-view {
-  min-height: 100vh;
+  height: 100vh;
   padding: 2rem;
   background: #0d1117;
   color: #f0f6fc;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
 }
 
 .header {
@@ -170,6 +158,16 @@ h1 {
   display: flex;
   flex-direction: column;
   gap: 0.8rem;
+  min-height: 0;
+}
+
+.content {
+  min-height: 0;
+}
+
+.volumes-table-scroll {
+  overflow: auto;
+  min-height: 0;
 }
 
 .volumes-table {

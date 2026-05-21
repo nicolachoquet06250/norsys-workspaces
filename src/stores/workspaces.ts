@@ -1,5 +1,6 @@
 import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, ref } from "vue";
 import type { ServiceConfig, WorkspaceConfig } from "../types";
 
@@ -10,6 +11,12 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
   const isCreating = ref(false);
   const isDeleting = ref(false);
   const error = ref<string | null>(null);
+  let dockerEventsUnlisten: UnlistenFn | null = null;
+
+  type DockerWorkspaceEventPayload = {
+    refreshRuntime?: boolean;
+    workspaces?: WorkspaceConfig[];
+  };
 
   const selectedWorkspace = computed<WorkspaceConfig | null>(() => {
     return items.value.find((workspace) => workspace.id === selectedWorkspaceId.value) ?? null;
@@ -25,6 +32,37 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     } finally {
       isLoading.value = false;
     }
+  }
+
+  function applyDockerWorkspacePayload(payload: DockerWorkspaceEventPayload) {
+    if (!payload.refreshRuntime || !Array.isArray(payload.workspaces)) {
+      return;
+    }
+
+    items.value = payload.workspaces;
+
+    if (selectedWorkspaceId.value && !items.value.some((workspace) => workspace.id === selectedWorkspaceId.value)) {
+      selectedWorkspaceId.value = items.value[0]?.id ?? null;
+    }
+  }
+
+  async function initDockerEventsListener() {
+    if (dockerEventsUnlisten) {
+      return;
+    }
+
+    dockerEventsUnlisten = await listen("docker:event", (event) => {
+      applyDockerWorkspacePayload(event.payload as DockerWorkspaceEventPayload);
+    });
+  }
+
+  function disposeDockerEventsListener() {
+    if (!dockerEventsUnlisten) {
+      return;
+    }
+
+    dockerEventsUnlisten();
+    dockerEventsUnlisten = null;
   }
 
   function selectWorkspace(workspaceId: string) {
@@ -104,6 +142,8 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     error,
     selectedWorkspace,
     fetchWorkspaces,
+    initDockerEventsListener,
+    disposeDockerEventsListener,
     createWorkspace,
     deleteWorkspace,
     selectWorkspace,

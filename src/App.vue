@@ -3,11 +3,13 @@ import { onMounted, ref } from 'vue';
 import { checkForAppUpdates } from './updater';
 import Sidebar from './components/layout/Sidebar.vue';
 import { useRuntimeStore } from "./stores/runtime";
+import {useVolumesStore} from "./stores/volumes";
 import {useSettingsStore} from "./stores/settings.ts";
 
 const isSidebarCollapsed = ref(window.innerWidth <= 768);
 const isMobile = ref(window.innerWidth <= 768);
 const runtimeStore = useRuntimeStore();
+const volumesStore = useVolumesStore();
 const settingsStore = useSettingsStore();
 
 onMounted(async () => {
@@ -17,6 +19,7 @@ onMounted(async () => {
 
   // Charger les activités récentes
   await runtimeStore.loadRecentRuns();
+  await volumesStore.initDockerEventsListener();
   
   window.addEventListener('resize', () => {
     isMobile.value = window.innerWidth <= 768;

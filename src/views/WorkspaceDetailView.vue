@@ -155,6 +155,8 @@ const serviceTableData = computed(() => {
 });
 
 onMounted(async () => {
+  await workspacesStore.initDockerEventsListener();
+  await runtimeStore.initDockerEventsListener();
   await settingsStore.loadPersistedSettings();
   await workspacesStore.fetchWorkspaces();
   applyRouteSelection();
@@ -198,9 +200,9 @@ watch(
 );
 
 onUnmounted(() => {
-  if (workspacesStore.selectedWorkspaceId) {
-    void runtimeStore.stopWorkspaceProbes(workspacesStore.selectedWorkspaceId);
-  }
+  runtimeStore.disposeDockerEventsListener();
+  workspacesStore.disposeDockerEventsListener();
+
   stopRuntimePolling();
 });
 
