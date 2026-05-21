@@ -21,7 +21,7 @@ const servicesData = computed(() => {
         config: service,
         workspace,
         status: runtimeService?.status ?? "idle",
-        port: runtimeService?.status === "running" ? 3000 + Math.floor(Math.random() * 5000) : undefined,
+        port: runtimeService?.status === "running" ? String(3000 + Math.floor(Math.random() * 5000)) : undefined,
         lastActivity: runtimeService?.last_transition ? formatTimeAgo(runtimeService.last_transition) : "Jamais utilisé",
       });
     }

@@ -66,7 +66,7 @@ const serviceData = computed(() => {
         workspace: workspace,
         status: sState?.status || 'idle',
         // On simule des ports pour le design
-        port: sState?.status === 'running' ? 3000 + Math.floor(Math.random() * 5000) : undefined,
+        port: sState?.status === 'running' ? String(3000 + Math.floor(Math.random() * 5000)) : undefined,
         lastActivity: sState?.last_transition ? formatTimeAgo(sState.last_transition) : 'Jamais utilisé'
       });
     }
