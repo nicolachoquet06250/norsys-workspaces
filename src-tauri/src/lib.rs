@@ -190,28 +190,53 @@ fn get_os_username() -> Result<String, String> {
 fn get_os_email() -> Result<String, String> {
     use std::process::Command;
 
-    // Tentative de récupération de l'UPN (User Principal Name) sur Windows
-    // qui correspond généralement à l'adresse email dans un environnement d'entreprise
-    if cfg!(target_os = "windows") {
+    fn get_upn_email() -> Option<String> {
+        if !cfg!(target_os = "windows") {
+            return None;
+        }
+
         let mut cmd = Command::new("whoami");
         cmd.arg("/UPN");
         orchestrator::apply_production_process_flags(&mut cmd);
-        let output = cmd.output();
 
-        if let Ok(out) = output {
-            if out.status.success() {
-                let upn = String::from_utf8_lossy(&out.stdout).trim().to_string();
-                if !upn.is_empty() {
-                    return Ok(upn);
-                }
-            }
+        let output = cmd.output().ok()?;
+        if !output.status.success() {
+            return None;
+        }
+
+        let upn = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if upn.is_empty() || !upn.contains('@') {
+            None
+        } else {
+            Some(upn)
         }
     }
 
-    // Fallback ou autres OS : on peut essayer de construire l'email à partir du nom d'utilisateur et du domaine si dispo
-    // Mais pour l'instant, si whoami /UPN échoue ou si on est sur un autre OS, on renvoie une erreur
-    // pour que le frontend puisse gérer le fallback.
-    Err("Impossible de récupérer l'email système".to_string())
+    fn get_microsoft_account_email() -> Option<String> {
+        let mut cmd = Command::new("powershell");
+        cmd.args([
+            "-NoProfile",
+            "-Command",
+            r#"Get-ItemProperty "HKCU:\Software\Microsoft\IdentityCRL\UserExtendedProperties\*" | Select-Object -ExpandProperty PSChildName"#,
+        ]);
+        orchestrator::apply_production_process_flags(&mut cmd);
+
+        let output = cmd
+            .output()
+            .ok()?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        stdout
+            .lines()
+            .map(str::trim)
+            .find(|line| line.contains('@'))
+            .map(String::from)
+    }
+
+    get_upn_email()
+        .or_else(get_microsoft_account_email)
+        .ok_or_else(|| "Aucun email Microsoft trouvé".to_string())
 }
 
 #[tauri::command]

@@ -64,35 +64,35 @@ function navigate(path: string) {
       <span v-if="!isCollapsed" class="logo-text">Dev Workspace Manager</span>
     </div>
 
-    <nav class="menu-main">
-      <ul>
-        <li 
-          v-for="item in menuItems" 
-          :key="item.path"
-          :class="{ active: isActive(item.path) }"
-          @click="navigate(item.path)"
-        >
-          <span class="icon">{{ item.icon }}</span>
-          <span class="label">{{ item.name }}</span>
-        </li>
-      </ul>
-    </nav>
+    <div class="menu-scroll">
+      <nav class="menu-main">
+        <ul>
+          <li 
+            v-for="item in menuItems" 
+            :key="item.path"
+            :class="{ active: isActive(item.path) }"
+            @click="navigate(item.path)"
+          >
+            <span class="icon">{{ item.icon }}</span>
+            <span class="label">{{ item.name }}</span>
+          </li>
+        </ul>
+      </nav>
 
-    <div class="spacer"></div>
-
-    <nav class="menu-secondary">
-      <ul>
-        <li 
-          v-for="item in secondaryItems" 
-          :key="item.path"
-          :class="{ active: isActive(item.path) }"
-          @click="navigate(item.path)"
-        >
-          <span class="icon">{{ item.icon }}</span>
-          <span class="label">{{ item.name }}</span>
-        </li>
-      </ul>
-    </nav>
+      <nav class="menu-secondary">
+        <ul>
+          <li 
+            v-for="item in secondaryItems" 
+            :key="item.path"
+            :class="{ active: isActive(item.path) }"
+            @click="navigate(item.path)"
+          >
+            <span class="icon">{{ item.icon }}</span>
+            <span class="label">{{ item.name }}</span>
+          </li>
+        </ul>
+      </nav>
+    </div>
 
     <div class="user-profile">
       <div class="avatar">
@@ -132,6 +132,20 @@ function navigate(path: string) {
   transition: width 0.3s cubic-bezier(0.4, 0, 0.2, 1), padding 0.3s cubic-bezier(0.4, 0, 0.2, 1);
   z-index: 1000;
   overflow: hidden;
+}
+
+.menu-scroll {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  margin-bottom: 1rem;
+  padding-right: 0.25rem;
+}
+
+.menu-secondary {
+  margin-top: auto;
 }
 
 @media (max-width: 768px) {
@@ -273,10 +287,6 @@ nav li.active {
   align-items: center;
   justify-content: center;
   flex-shrink: 0;
-}
-
-.spacer {
-  flex-grow: 1;
 }
 
 .user-profile {

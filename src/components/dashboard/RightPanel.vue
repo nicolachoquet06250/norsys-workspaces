@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { useRouter } from "vue-router";
 import { useRuntimeStore } from "../../stores/runtime";
 import { useWorkspacesStore } from "../../stores/workspaces";
@@ -10,16 +10,41 @@ const workspacesStore = useWorkspacesStore();
 const router = useRouter();
 
 let statsInterval: any;
+const rightPanelRef = ref<HTMLElement | null>(null);
+const isSticky = ref(true);
+let panelResizeObserver: ResizeObserver | null = null;
+
+function updateStickyState() {
+  if (!rightPanelRef.value) return;
+  const panelHeight = rightPanelRef.value.getBoundingClientRect().height;
+  isSticky.value = window.innerHeight > panelHeight;
+}
 
 onMounted(() => {
   runtimeStore.updateSystemStats();
   statsInterval = setInterval(() => {
     runtimeStore.updateSystemStats();
   }, 3000);
+
+  void nextTick(() => {
+    updateStickyState();
+
+    if (rightPanelRef.value) {
+      panelResizeObserver = new ResizeObserver(() => {
+        updateStickyState();
+      });
+      panelResizeObserver.observe(rightPanelRef.value);
+    }
+  });
+
+  window.addEventListener("resize", updateStickyState);
 });
 
 onUnmounted(() => {
   if (statsInterval) clearInterval(statsInterval);
+  window.removeEventListener("resize", updateStickyState);
+  panelResizeObserver?.disconnect();
+  panelResizeObserver = null;
 });
 
 const resources = computed(() => {
@@ -147,7 +172,7 @@ function formatTimeAgo(timestamp: number): string {
 </script>
 
 <template>
-  <div class="right-panel">
+  <div ref="rightPanelRef" class="right-panel" :class="{ 'is-sticky': isSticky }">
     <section class="panel-section">
       <h3>Résumé rapide</h3>
       <div class="resource-list">
@@ -210,6 +235,13 @@ function formatTimeAgo(timestamp: number): string {
   flex-direction: column;
   gap: 2rem;
   padding-left: 1rem;
+  /* min-height: 100vh; */
+  height: min-content;
+}
+
+.right-panel.is-sticky {
+  position: sticky;
+  top: 35px;
 }
 
 @media (max-width: 1200px) {
