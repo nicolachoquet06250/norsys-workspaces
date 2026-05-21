@@ -5,15 +5,20 @@ interface ServiceItem {
   config: ServiceConfig;
   workspace: WorkspaceConfig;
   status: ServiceRuntimeStatus;
-  port?: number;
+  port?: string;
+  accessUrl?: string;
   lastActivity?: string;
 }
 
 withDefaults(defineProps<{
   services: ServiceItem[];
   showWorkspace?: boolean;
+  showViewAllLink?: boolean;
+  showAccessUrlColumn?: boolean;
 }>(), {
-  showWorkspace: true
+  showWorkspace: true,
+  showViewAllLink: true,
+  showAccessUrlColumn: false,
 });
 
 function getTechIcon(tech: string) {
@@ -52,6 +57,7 @@ function getStatusLabel(status: ServiceRuntimeStatus) {
           <th class="hide-tablet">Technologie</th>
           <th>Statut</th>
           <th class="hide-mobile">Port(s)</th>
+          <th v-if="showAccessUrlColumn" class="hide-mobile">URL d'accès</th>
           <th class="hide-tablet">Dernière activité</th>
           <th></th>
         </tr>
@@ -64,7 +70,14 @@ function getStatusLabel(status: ServiceRuntimeStatus) {
               <span>{{ item.config.display_name || item.config.name }}</span>
             </div>
           </td>
-          <td v-if="showWorkspace" class="hide-mobile">{{ item.workspace.name }}</td>
+          <td v-if="showWorkspace" class="hide-mobile">
+            <router-link
+              class="workspace-link"
+              :to="{ name: 'workspace-detail', params: { id: item.workspace.id } }"
+            >
+              {{ item.workspace.name }}
+            </router-link>
+          </td>
           <td class="hide-tablet">
             <div class="tech-tag">
                {{ getTechIcon(item.config.name) }} {{ item.config.mode || 'Service' }}
@@ -76,14 +89,26 @@ function getStatusLabel(status: ServiceRuntimeStatus) {
               <span class="status-label" :class="getStatusClass(item.status)">{{ getStatusLabel(item.status) }}</span>
             </div>
           </td>
-          <td class="hide-mobile"><span class="port">{{ item.port || '----' }}</span></td>
+          <td class="hide-mobile"><span class="port">{{ item.port ?? '----' }}</span></td>
+          <td v-if="showAccessUrlColumn" class="hide-mobile">
+            <a
+              v-if="item.accessUrl"
+              class="access-link"
+              :href="item.accessUrl"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              {{ item.accessUrl }}
+            </a>
+            <span v-else class="port">----</span>
+          </td>
           <td class="activity hide-tablet">{{ item.lastActivity || 'Il y a 2 min' }}</td>
           <td><button class="action-btn">⋮</button></td>
         </tr>
       </tbody>
     </table>
-    <div class="footer">
-      <a href="#" class="view-all">Voir tous les services</a>
+    <div v-if="showViewAllLink" class="footer">
+      <router-link to="/services" class="view-all">Voir tous les services</router-link>
     </div>
   </div>
 </template>
@@ -155,6 +180,32 @@ function getStatusLabel(status: ServiceRuntimeStatus) {
 
 .activity {
   color: #8b949e;
+}
+
+.workspace-link {
+  color: #79c0ff;
+  text-decoration: none;
+}
+
+.workspace-link:visited {
+  color: #79c0ff;
+}
+
+.workspace-link:hover {
+  text-decoration: underline;
+}
+
+.access-link {
+  color: #79c0ff;
+  text-decoration: none;
+}
+
+.access-link:visited {
+  color: #79c0ff;
+}
+
+.access-link:hover {
+  text-decoration: underline;
 }
 
 .action-btn {

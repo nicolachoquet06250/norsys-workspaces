@@ -1928,6 +1928,7 @@ mod tests {
                 depends_on: vec![],
                 mode: "foreground".to_string(),
                 env: HashMap::new(),
+                ports: vec![],
             },
             ServiceConfig {
                 name: "web".to_string(),
@@ -1937,6 +1938,7 @@ mod tests {
                 depends_on: vec!["api".to_string()],
                 mode: "foreground".to_string(),
                 env: HashMap::new(),
+                ports: vec![],
             },
         ];
 

@@ -15,6 +15,7 @@ export interface ServiceConfig {
   depends_on: string[];
   mode: string;
   env: Record<string, string>;
+  ports?: string[];
 }
 
 export interface WorkspaceConfig {
@@ -62,4 +63,19 @@ export interface SystemStats {
   memory_total: number;
   disk_used: number;
   disk_total: number;
+}
+
+export interface WorkspaceServiceImage {
+  workspace_id: string;
+  workspace_name: string;
+  service_name: string;
+  image: string;
+}
+
+export interface WorkspaceServiceVolume {
+  workspace_id: string;
+  workspace_name: string;
+  service_name: string;
+  volume: string;
+  host_path: string | null;
 }

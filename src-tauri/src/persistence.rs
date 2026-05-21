@@ -10,6 +10,15 @@ use serde::{Deserialize, Serialize};
 use crate::snapshot_manager::Snapshot;
 use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
 
+#[derive(Debug, Clone)]
+pub struct PersistedServiceVolume {
+    pub workspace_id: String,
+    pub service_name: String,
+    pub volume: String,
+    pub host_path: String,
+    pub updated_at: String,
+}
+
 fn ensure_workspaces_services_column(conn: &Connection) -> Result<(), String> {
     match conn.execute(
         "ALTER TABLE workspaces ADD COLUMN services_json TEXT NOT NULL DEFAULT '[]'",
@@ -80,6 +89,24 @@ fn ensure_recent_runs_service_name_column(conn: &Connection) -> Result<(), Strin
     }
 }
 
+fn ensure_service_volumes_table(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS service_volumes (
+            workspace_id TEXT NOT NULL,
+            service_name TEXT NOT NULL,
+            volume TEXT NOT NULL,
+            host_path TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (workspace_id, service_name, volume)
+        );
+        CREATE INDEX IF NOT EXISTS idx_service_volumes_workspace_service
+            ON service_volumes(workspace_id, service_name);
+        ",
+    )
+    .map_err(|e| format!("Impossible d'initialiser la table service_volumes: {e}"))
+}
+
 pub fn init_schema() -> Result<(), String> {
     let conn = open_db()?;
     conn.execute_batch(
@@ -120,7 +147,79 @@ pub fn init_schema() -> Result<(), String> {
 
     ensure_workspaces_services_column(&conn)?;
     ensure_recent_runs_service_name_column(&conn)?;
+    ensure_service_volumes_table(&conn)?;
     Ok(())
+}
+
+pub fn save_workspace_service_volumes(
+    workspace_id: &str,
+    service_name: &str,
+    volumes: &HashMap<String, String>,
+) -> Result<(), String> {
+    let workspace_id = workspace_id.trim();
+    let service_name = service_name.trim();
+    if workspace_id.is_empty() || service_name.is_empty() {
+        return Ok(());
+    }
+
+    let mut conn = open_db()?;
+    let tx = conn.transaction().map_err(|e| e.to_string())?;
+    let now = now_unix();
+
+    for (volume, host_path) in volumes {
+        let volume = volume.trim();
+        let host_path = host_path.trim();
+        if volume.is_empty() || host_path.is_empty() {
+            continue;
+        }
+
+        tx.execute(
+            "INSERT INTO service_volumes(workspace_id, service_name, volume, host_path, updated_at)
+             VALUES(?1, ?2, ?3, ?4, ?5)
+             ON CONFLICT(workspace_id, service_name, volume)
+             DO UPDATE SET host_path=excluded.host_path, updated_at=excluded.updated_at",
+            params![workspace_id, service_name, volume, host_path, now],
+        )
+        .map_err(|e| e.to_string())?;
+    }
+
+    tx.commit().map_err(|e| e.to_string())
+}
+
+pub fn load_workspace_service_volumes(
+    workspace_id: &str,
+    service_name: &str,
+) -> Result<HashMap<String, String>, String> {
+    let workspace_id = workspace_id.trim();
+    let service_name = service_name.trim();
+    if workspace_id.is_empty() || service_name.is_empty() {
+        return Ok(HashMap::new());
+    }
+
+    let conn = open_db()?;
+    let mut stmt = conn
+        .prepare(
+            "SELECT volume, host_path
+             FROM service_volumes
+             WHERE workspace_id = ?1 AND service_name = ?2",
+        )
+        .map_err(|e| e.to_string())?;
+
+    let rows = stmt
+        .query_map(params![workspace_id, service_name], |row| {
+            let volume: String = row.get(0)?;
+            let host_path: String = row.get(1)?;
+            Ok((volume, host_path))
+        })
+        .map_err(|e| e.to_string())?;
+
+    let mut results = HashMap::new();
+    for row in rows {
+        let (volume, host_path) = row.map_err(|e| e.to_string())?;
+        results.insert(volume, host_path);
+    }
+
+    Ok(results)
 }
 
 pub fn upsert_workspace_catalog(workspaces: &[WorkspaceConfig]) -> Result<(), String> {

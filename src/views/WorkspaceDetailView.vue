@@ -71,6 +71,63 @@ const activeServicesCount = computed(() => {
   return selectedRuntime.value.services.filter(s => s.status === 'running').length;
 });
 
+function normalizeServiceName(name: string): string {
+  return name.trim().toLowerCase().replace(/[-_\s]+/g, "");
+}
+
+function normalizeDisplayedPort(port: string): string {
+  const trimmedPort = port.trim();
+  const [leftPort] = trimmedPort.split(":");
+  return leftPort?.trim() || trimmedPort;
+}
+
+function isWebService(service: { name: string; mode?: string }): boolean {
+  const mode = (service.mode ?? "").toLowerCase();
+  const name = service.name.toLowerCase();
+  return (
+    mode.includes("web") ||
+    mode.includes("front") ||
+    mode.includes("back") ||
+    name.includes("nginx") ||
+    name.includes("apache") ||
+    name.includes("caddy")
+  );
+}
+
+function buildAccessUrl(port: string | undefined): string | undefined {
+  if (!port) {
+    return undefined;
+  }
+
+  const normalizedPort = normalizeDisplayedPort(port);
+  if (!/^\d+$/.test(normalizedPort)) {
+    return undefined;
+  }
+
+  const protocol = normalizedPort === "443" ? "https" : "http";
+  return `${protocol}://localhost:${normalizedPort}`;
+}
+
+const livePortsByService = computed(() => {
+  const workspaceId = workspacesStore.selectedWorkspaceId;
+  if (!workspaceId) {
+    return new Map<string, string[]>();
+  }
+
+  const liveWorkspace = workspacesStore.items.find((workspace) => workspace.id === workspaceId);
+  const portsByService = new Map<string, string[]>();
+
+  for (const service of liveWorkspace?.services ?? []) {
+    const ports =
+      service.ports
+        ?.map((port) => normalizeDisplayedPort(port))
+        .filter((port) => port.length > 0) ?? [];
+    portsByService.set(normalizeServiceName(service.name), ports);
+  }
+
+  return portsByService;
+});
+
 /*const getRawServiceStatus = (serviceName: string) => {
   const runtimeService = selectedRuntimeOrDefault.value?.services.find((service) => service.name === serviceName);
   return runtimeService?.status ?? "idle";
@@ -80,13 +137,18 @@ const serviceTableData = computed(() => {
   if (!selectedWorkspace.value) return [];
   
   return selectedWorkspace.value.services.map(service => {
-    const sState = selectedRuntime.value?.services.find(s => s.name === service.name);
+    const normalizedServiceName = normalizeServiceName(service.name);
+    const sState = selectedRuntime.value?.services.find((runtimeService) => {
+      return normalizeServiceName(runtimeService.name) === normalizedServiceName;
+    });
+    const servicePorts = livePortsByService.value.get(normalizedServiceName) ?? [];
+
     return {
       config: service,
       workspace: selectedWorkspace.value!,
       status: sState?.status || 'idle',
-      // Simulé pour le style, on pourrait extraire les vraies infos si disponibles
-      port: sState?.status === 'running' ? 3000 + Math.floor(Math.random() * 5000) : undefined,
+      port: servicePorts.length > 0 ? servicePorts.join(", ") : undefined,
+      accessUrl: isWebService(service) ? buildAccessUrl(servicePorts[0]) : undefined,
       lastActivity: sState?.status === 'running' ? 'Actif' : 'Inactif'
     };
   });
@@ -154,6 +216,7 @@ async function refreshRuntimeAndSync(workspaceId: string) {
 
   isRuntimeRefreshInFlight = true;
   try {
+    await workspacesStore.fetchWorkspaces();
     await runtimeStore.refreshWorkspaceState(workspaceId);
     void logsStore.fetchLogs(workspaceId);
     syncUiStateFromRuntime(workspaceId);
@@ -401,7 +464,7 @@ async function deleteSelectedWorkspace() {
                <select><option>Trier par nom</option></select>
             </div>
           </div>
-          <ServiceTable :services="serviceTableData" :show-workspace="false" />
+          <ServiceTable :services="serviceTableData" :show-workspace="false" :show-access-url-column="true" />
         </section>
 
         <section class="section">

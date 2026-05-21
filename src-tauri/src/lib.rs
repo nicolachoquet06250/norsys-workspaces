@@ -12,6 +12,7 @@ use orchestrator::{RuntimeWorkspaceState, ServiceRuntimeStatus};
 use persistence::PersistedSettings;
 use serde::{Deserialize, Serialize};
 use snapshot_manager::Snapshot;
+use std::process::Command;
 use tauri::Manager;
 use workspace_loader::WorkspaceConfig;
 
@@ -58,6 +59,43 @@ fn delete_workspace(workspace_id: String) -> Result<(), String> {
 #[tauri::command]
 fn detect_docker_services(root: String) -> Result<Vec<workspace_loader::ServiceConfig>, String> {
     workspace_loader::detect_docker_services(&root)
+}
+
+#[tauri::command]
+fn list_workspace_service_images() -> Result<Vec<workspace_loader::WorkspaceServiceImage>, String> {
+    workspace_loader::list_workspace_service_images()
+}
+
+#[tauri::command]
+fn list_workspace_service_volumes() -> Result<Vec<workspace_loader::WorkspaceServiceVolume>, String> {
+    workspace_loader::list_workspace_service_volumes()
+}
+
+#[tauri::command]
+fn open_path_in_file_manager(path: String) -> Result<(), String> {
+    let trimmed_path = path.trim();
+    if trimmed_path.is_empty() {
+        return Err("Le chemin est requis".to_string());
+    }
+
+    let mut command = if cfg!(target_os = "windows") {
+        let mut cmd = Command::new("explorer");
+        cmd.arg(trimmed_path);
+        cmd
+    } else if cfg!(target_os = "macos") {
+        let mut cmd = Command::new("open");
+        cmd.arg(trimmed_path);
+        cmd
+    } else {
+        let mut cmd = Command::new("xdg-open");
+        cmd.arg(trimmed_path);
+        cmd
+    };
+
+    command
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("Impossible d'ouvrir le chemin {trimmed_path}: {e}"))
 }
 
 #[tauri::command]
@@ -324,6 +362,9 @@ pub fn run() {
             create_workspace,
             delete_workspace,
             detect_docker_services,
+            list_workspace_service_images,
+            list_workspace_service_volumes,
+            open_path_in_file_manager,
             get_persisted_settings,
             save_persisted_settings,
             start_workspace,

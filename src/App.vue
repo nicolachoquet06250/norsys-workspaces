@@ -3,17 +3,20 @@ import { onMounted, ref } from 'vue';
 import { checkForAppUpdates } from './updater';
 import Sidebar from './components/layout/Sidebar.vue';
 import { useRuntimeStore } from "./stores/runtime";
+import {useSettingsStore} from "./stores/settings.ts";
 
 const isSidebarCollapsed = ref(window.innerWidth <= 768);
 const isMobile = ref(window.innerWidth <= 768);
 const runtimeStore = useRuntimeStore();
+const settingsStore = useSettingsStore();
 
-onMounted(() => {
+onMounted(async () => {
   // Vérification automatique au démarrage (silencieuse si pas de mise à jour)
-  checkForAppUpdates();
+  await checkForAppUpdates();
+  await settingsStore.loadPersistedSettings();
 
   // Charger les activités récentes
-  runtimeStore.loadRecentRuns();
+  await runtimeStore.loadRecentRuns();
   
   window.addEventListener('resize', () => {
     isMobile.value = window.innerWidth <= 768;
