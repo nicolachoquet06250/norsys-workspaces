@@ -61,7 +61,7 @@ function navigate(path: string) {
   <aside class="sidebar" :class="{ 'is-collapsed': isCollapsed }">
     <div class="logo" :class="{ 'clickable': isCollapsed }" @click="isCollapsed ? emit('toggle') : null">
       <div class="logo-icon">💠</div>
-      <span class="logo-text">Dev Workspace Manager</span>
+      <span v-if="!isCollapsed" class="logo-text">Dev Workspace Manager</span>
     </div>
 
     <nav class="menu-main">
@@ -188,8 +188,13 @@ function navigate(path: string) {
 
 .sidebar.is-collapsed .logo {
   justify-content: center;
-  padding: 0 0 2rem;
+  padding: 0 0.5rem 2rem;
+  margin-bottom: 0;
   gap: 0;
+}
+
+.sidebar.is-collapsed .logo-icon {
+  transform: translateX(2px);
 }
 
 .sidebar.is-collapsed nav li {
@@ -220,7 +225,6 @@ function navigate(path: string) {
 }
 
 .logo.clickable:hover {
-  background-color: #161b22;
   border-radius: 6px;
 }
 

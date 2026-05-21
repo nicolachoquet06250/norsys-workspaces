@@ -184,21 +184,43 @@ fn has_compose_file(workspace_root: &str) -> bool {
 }
 
 fn has_wsl_binary() -> bool {
-    let mut cmd = Command::new("wsl");
-    apply_production_process_flags(&mut cmd);
-    let detected = cmd
-        .arg("--help")
-        .stdout(Stdio::null())
-        .stderr(Stdio::null())
-        .status()
-        .is_ok();
+    *WSL_BINARY_AVAILABLE.get_or_init(|| {
+        let mut cmd = Command::new("wsl");
+        apply_production_process_flags(&mut cmd);
+        let detected = cmd
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok();
 
-    eprintln!("[orchestrator] binaire WSL détecté: {detected}");
-    detected
+        eprintln!("[orchestrator] binaire WSL détecté: {detected}");
+        detected
+    })
+}
+
+static WINDOWS_HOST: OnceLock<bool> = OnceLock::new();
+static WSL_BINARY_AVAILABLE: OnceLock<bool> = OnceLock::new();
+
+pub fn init_host_flags() {
+    let _ = WINDOWS_HOST.get_or_init(|| cfg!(target_os = "windows"));
+    let _ = WSL_BINARY_AVAILABLE.get_or_init(|| {
+        let mut cmd = Command::new("wsl");
+        apply_production_process_flags(&mut cmd);
+        let detected = cmd
+            .arg("--help")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_ok();
+
+        eprintln!("[orchestrator] binaire WSL détecté: {detected}");
+        detected
+    });
 }
 
 fn is_windows_host() -> bool {
-    cfg!(target_os = "windows")
+    *WINDOWS_HOST.get_or_init(|| cfg!(target_os = "windows"))
 }
 
 fn compose_command_label(command: DockerComposeCommand) -> &'static str {

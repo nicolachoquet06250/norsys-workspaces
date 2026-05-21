@@ -12,6 +12,7 @@ use orchestrator::{RuntimeWorkspaceState, ServiceRuntimeStatus};
 use persistence::PersistedSettings;
 use serde::{Deserialize, Serialize};
 use snapshot_manager::Snapshot;
+use tauri::Manager;
 use workspace_loader::WorkspaceConfig;
 
 #[derive(Default)]
@@ -240,7 +241,11 @@ async fn is_docker_connected() -> bool {
 
     match docker {
         Ok(client) => client.ping().await.is_ok(),
-        Err(_) => false,
+        Err(err) => {
+            println!("Failed to connect to Docker: {}", err);
+
+            false
+        },
     }
 }
 
@@ -259,9 +264,25 @@ fn get_system_stats(state: tauri::State<CombinedState>) -> system_stats::SystemS
     system_stats::get_system_stats(&state.system)
 }
 
+#[tauri::command]
+fn close_splashscreen(window: tauri::WebviewWindow) -> Result<(), String> {
+    if let Some(splashscreen) = window.get_webview_window("splashscreen") {
+        splashscreen.close().map_err(|err| err.to_string())?;
+    }
+
+    if let Some(main) = window.get_webview_window("main") {
+        main.show().map_err(|err| err.to_string())?;
+        main.set_focus().map_err(|err| err.to_string())?;
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     println!("Starting application...");
+
+    orchestrator::init_host_flags();
 
     persistence::init_schema().expect("error while initializing sqlite schema");
 
@@ -292,7 +313,8 @@ pub fn run() {
             is_docker_connected,
             get_recent_runs,
             add_recent_run,
-            get_system_stats
+            get_system_stats,
+            close_splashscreen
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

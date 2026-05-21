@@ -1,0 +1,13 @@
+#!/bin/sh
+
+FILE="src-tauri/Cargo.toml"
+
+if [ -f "$FILE" ]; then
+  tmp="${FILE}.tmp-crlf"
+
+  sed 's/\r$//' "$FILE" | awk '{ printf "%s\r\n", $0 }' > "$tmp"
+
+  mv "$tmp" "$FILE"
+
+  git add "$FILE"
+fi
