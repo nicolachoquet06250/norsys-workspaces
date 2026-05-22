@@ -14,7 +14,10 @@ use serde::{Deserialize, Serialize};
 use snapshot_manager::Snapshot;
 use std::process::Command;
 use tauri::{AppHandle, Emitter, Manager};
+
 use workspace_loader::WorkspaceConfig;
+
+#[cfg(windows)]
 use windows::UI::ViewManagement::{UIColorType, UISettings};
 
 #[derive(Default)]
@@ -489,10 +492,14 @@ fn rgb_to_hex(r: u8, g: u8, b: u8) -> String {
 
 #[tauri::command]
 fn get_accent_color() -> Result<String, String> {
+    #[cfg(windows)]
     let settings = UISettings::new().map_err(|e| e.to_string())?;
     let color = settings
         .GetColorValue(UIColorType::Accent)
         .map_err(|e| e.to_string())?;
+
+    #[cfg(unix)]
+    let color = {R = 255; G = 255; B = 255};
 
     Ok(rgb_to_hex(color.R, color.G, color.B))
 }
