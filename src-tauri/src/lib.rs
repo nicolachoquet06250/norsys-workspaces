@@ -493,15 +493,19 @@ fn rgb_to_hex(r: u8, g: u8, b: u8) -> String {
 #[tauri::command]
 fn get_accent_color() -> Result<String, String> {
     #[cfg(windows)]
-    let settings = UISettings::new().map_err(|e| e.to_string())?;
-    let color = settings
-        .GetColorValue(UIColorType::Accent)
-        .map_err(|e| e.to_string())?;
+    {
+        let settings = UISettings::new().map_err(|e| e.to_string())?;
+        let color = settings
+            .GetColorValue(UIColorType::Accent)
+            .map_err(|e| e.to_string())?;
+        return Ok(rgb_to_hex(color.R, color.G, color.B));
+    }
 
-    #[cfg(unix)]
-    let color = {R = 255; G = 255; B = 255};
-
-    Ok(rgb_to_hex(color.R, color.G, color.B))
+    #[cfg(not(windows))]
+    {
+        // Default accent color for non-Windows platforms
+        return Ok("#7000FF".to_string());
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
