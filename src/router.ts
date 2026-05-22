@@ -7,6 +7,7 @@ import ServicesView from "./views/ServicesView.vue";
 import ImagesView from "./views/ImagesView.vue";
 import VolumesView from "./views/VolumesView.vue";
 import NetworksView from "./views/NetworksView.vue";
+import LogsView from "./views/LogsView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -50,6 +51,11 @@ export const router = createRouter({
       path: "/networks",
       name: "networks",
       component: NetworksView,
+    },
+    {
+      path: "/logs",
+      name: "logs",
+      component: LogsView,
     },
   ],
 });
