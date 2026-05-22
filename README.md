@@ -43,6 +43,10 @@ Application de gestion de workspaces type Docker Desktop, permettant la créatio
 
 ![Screenshot](.github/screenshots/screenshot-volumes.png)
 
+### Vue images
+
+![Screenshot](.github/screenshots/screenshot-images.png)
+
 ## Système de mise à jour automatique
 
 Le système d'auto-update a été configuré avec le plugin `@tauri-apps/plugin-updater`.
