@@ -81,3 +81,10 @@ export interface WorkspaceServiceVolume {
   volume: string;
   host_path: string | null;
 }
+
+export interface WorkspaceNetwork {
+  workspace_id: string;
+  workspace_name: string;
+  service_name: string;
+  network: string;
+}

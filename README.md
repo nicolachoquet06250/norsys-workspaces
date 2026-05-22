@@ -50,3 +50,5 @@ Application de gestion de workspaces type Docker Desktop, permettant la créatio
 ## Système de mise à jour automatique
 
 Le système d'auto-update a été configuré avec le plugin `@tauri-apps/plugin-updater`.
+
+https://placehold.co/64x64/transparent/000000?text=NC

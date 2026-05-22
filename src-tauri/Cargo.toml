@@ -1,6 +1,6 @@
 [package]
 name = "dev-workspace-manager"
-version = "0.4.1"
+version = "0.4.2"
 description = "A Tauri App"
 authors = ["you"]
 edition = "2021"
@@ -35,4 +35,11 @@ tauri-plugin-updater = "2.3.0"
 tauri-plugin-process = "2.3.1"
 whoami = "1.5"
 sysinfo = "0.33"
+windows = {
+    version = "0.58",
+    features = [
+        "UI_ViewManagement",
+        "Foundation"
+    ]
+}
 

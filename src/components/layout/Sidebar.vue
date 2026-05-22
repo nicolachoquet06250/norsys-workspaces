@@ -37,7 +37,7 @@ const menuItems = [
   // { name: "Environnements", icon: "🤖", path: "/environments" },
   { name: "Images", icon: "📦", path: "/images" },
   { name: "Volumes", icon: "💾", path: "/volumes" },
-  { name: "Réseau", icon: "🌐", path: "/networks" },
+  { name: "Réseaux", icon: "🌐", path: "/networks" },
   { name: "Logs", icon: "📋", path: "/logs" },
 ];
 
@@ -96,7 +96,7 @@ function navigate(path: string) {
 
     <div class="user-profile">
       <div class="avatar">
-        <img :src="`https://ui-avatars.com/api/?name=${encodeURIComponent(settingsStore.username)}&background=random`" :alt="settingsStore.username" />
+        <img :src="`https://placehold.co/64x64/${settingsStore.accentColor}/000000?text=${encodeURIComponent(settingsStore.username.split(' ').map(p => p.charAt(0)).join(''))}`" :alt="settingsStore.username">
       </div>
       <div class="user-info">
         <span class="name">{{ settingsStore.username }}</span>

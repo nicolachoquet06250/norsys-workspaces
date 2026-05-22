@@ -6,6 +6,7 @@ import WorkspacesView from "./views/WorkspacesView.vue";
 import ServicesView from "./views/ServicesView.vue";
 import ImagesView from "./views/ImagesView.vue";
 import VolumesView from "./views/VolumesView.vue";
+import NetworksView from "./views/NetworksView.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
@@ -44,6 +45,11 @@ export const router = createRouter({
       path: "/volumes",
       name: "volumes",
       component: VolumesView,
+    },
+    {
+      path: "/networks",
+      name: "networks",
+      component: NetworksView,
     },
   ],
 });

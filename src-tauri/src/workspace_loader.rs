@@ -52,6 +52,14 @@ pub struct WorkspaceServiceVolume {
     pub host_path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct WorkspaceNetwork {
+    pub workspace_id: String,
+    pub workspace_name: String,
+    pub service_name: String,
+    pub network: String,
+}
+
 #[derive(Debug, Deserialize)]
 #[serde(untagged)]
 enum DockerComposeVolume {
@@ -106,6 +114,20 @@ struct DockerApiContainer {
     ports: Vec<DockerApiPort>,
     #[serde(default, rename = "Mounts")]
     mounts: Vec<DockerApiMount>,
+    #[serde(default, rename = "NetworkSettings")]
+    network_settings: Option<DockerApiNetworkSettings>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DockerApiNetworkSettings {
+    #[serde(default, rename = "Networks")]
+    networks: HashMap<String, DockerApiNetwork>,
+}
+
+#[derive(Debug, Deserialize)]
+struct DockerApiNetwork {
+    #[serde(default, rename = "NetworkID")]
+    network_id: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -394,6 +416,21 @@ fn fetch_docker_containers() -> Option<Vec<DockerApiContainer>> {
                         destination: mount.destination.unwrap_or_default(),
                     })
                     .collect(),
+                network_settings: container.network_settings.map(|ns| DockerApiNetworkSettings {
+                    networks: ns
+                        .networks
+                        .unwrap_or_default()
+                        .into_iter()
+                        .map(|(name, network)| {
+                            (
+                                name,
+                                DockerApiNetwork {
+                                    network_id: network.network_id,
+                                },
+                            )
+                        })
+                        .collect(),
+                }),
             })
             .collect(),
     )
@@ -740,4 +777,34 @@ pub fn list_workspace_service_volumes() -> Result<Vec<WorkspaceServiceVolume>, S
     }
 
     Ok(volumes)
+}
+
+pub fn list_workspace_networks() -> Result<Vec<WorkspaceNetwork>, String> {
+    let workspaces = list_workspaces()?;
+    let containers = fetch_docker_containers().unwrap_or_default();
+
+    let mut networks = Vec::new();
+
+    for workspace in workspaces {
+        let root = normalize_workspace_root(&workspace.root);
+
+        for container in &containers {
+            if container_belongs_to_workspace(container, &root) {
+                if let Some(service_name) = extract_service_name_from_container(container) {
+                    if let Some(ns) = &container.network_settings {
+                        for network_name in ns.networks.keys() {
+                            networks.push(WorkspaceNetwork {
+                                workspace_id: workspace.id.clone(),
+                                workspace_name: workspace.name.clone(),
+                                service_name: service_name.clone(),
+                                network: network_name.clone(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(networks)
 }
