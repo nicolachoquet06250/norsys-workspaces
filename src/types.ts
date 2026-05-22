@@ -14,6 +14,7 @@ export interface ServiceConfig {
   cwd?: string;
   depends_on: string[];
   mode: string;
+  ports?: string[];
   kind: string;
   env: Record<string, string>;
   image?: string;
