@@ -27,6 +27,7 @@ jobs:
       - name: Import GPG key (for signed tag)
         if: matrix.platform == 'ubuntu-22.04'
         uses: crazy-max/ghaction-import-gpg@v6
+        id: import_gpg
         with:
           gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
           passphrase: ${{ secrets.GPG_PASSPHRASE }}
@@ -77,9 +78,9 @@ jobs:
         shell: bash
         run: |
           tag_name="${{ steps.package_version.outputs.version }}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git config commit.gpgsign true
+          git config user.name "${{ steps.import_gpg.outputs.name }}"
+          git config user.email "${{ steps.import_gpg.outputs.email }}"
+          git config user.signingkey "${{ steps.import_gpg.outputs.fingerprint }}"
           git config tag.gpgSign true
           git tag -s "$tag_name" -m "Release $tag_name"
           git push origin "$tag_name"
@@ -89,7 +90,7 @@ jobs:
         id: commit_message
         shell: bash
         run: |
-          delimiter="$((node -p "crypto.randomUUID()")"
+          delimiter="$(node -p "crypto.randomUUID()")"
           {
             echo "message<<$delimiter"
             git log -1 --pretty=%B
