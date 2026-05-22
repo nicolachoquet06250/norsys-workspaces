@@ -8,7 +8,7 @@ use bollard::Docker;
 use bollard::query_parameters::ListContainersOptionsBuilder;
 use tokio::runtime::Runtime;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct ServiceConfig {
     pub name: String,
     pub display_name: Option<String>,
@@ -151,13 +151,19 @@ pub fn to_human_friendly(name: &str) -> String {
 
 pub fn list_workspaces() -> Result<Vec<WorkspaceConfig>, String> {
     let mut workspaces = crate::persistence::load_workspace_catalog()?;
+    let mut changed = false;
 
     for workspace in &mut workspaces {
         if let Ok(detected_services) = detect_docker_services(&workspace.root) {
-            if !detected_services.is_empty() {
+            if !detected_services.is_empty() && detected_services != workspace.services {
                 workspace.services = detected_services;
+                changed = true;
             }
         }
+    }
+
+    if changed {
+        crate::persistence::upsert_workspace_catalog(&workspaces)?;
     }
 
     Ok(workspaces)
@@ -271,33 +277,14 @@ pub fn list_workspace_service_images() -> Result<Vec<WorkspaceServiceImage>, Str
     let mut images = Vec::new();
 
     for workspace in workspaces {
-        let compose_yaml_path = Path::new(&workspace.root).join("docker-compose.yaml");
-        let compose_yml_path = Path::new(&workspace.root).join("docker-compose.yml");
-
-        let compose_path = if compose_yaml_path.is_file() {
-            compose_yaml_path
-        } else if compose_yml_path.is_file() {
-            compose_yml_path
-        } else {
-            continue;
-        };
-
-        let content = fs::read_to_string(&compose_path)
-            .map_err(|e| format!("Impossible de lire {}: {e}", compose_path.display()))?;
-
-        let compose: DockerComposeFile = serde_yaml::from_str(&content)
-            .map_err(|e| format!("docker-compose invalide ({}): {e}", compose_path.display()))?;
-
         for service in &workspace.services {
-            if let Some(compose_service) = compose.services.get(&service.name) {
-                if let Some(image) = compose_service.image.as_ref().map(|i| i.trim()).filter(|i| !i.is_empty()) {
-                    images.push(WorkspaceServiceImage {
-                        workspace_id: workspace.id.clone(),
-                        workspace_name: workspace.name.clone(),
-                        service_name: service.display_name.clone().unwrap_or_else(|| service.name.clone()),
-                        image: image.to_string(),
-                    });
-                }
+            if let Some(image) = service.image.as_ref().map(|i| i.trim()).filter(|i| !i.is_empty()) {
+                images.push(WorkspaceServiceImage {
+                    workspace_id: workspace.id.clone(),
+                    workspace_name: workspace.name.clone(),
+                    service_name: service.display_name.clone().unwrap_or_else(|| service.name.clone()),
+                    image: image.to_string(),
+                });
             }
         }
     }

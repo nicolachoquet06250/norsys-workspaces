@@ -65,7 +65,13 @@ onMounted(async () => {
           </thead>
           <tbody>
             <tr v-for="item in paginatedImages" :key="`${item.workspace_id}-${item.service_name}-${item.image}`">
-              <td>{{ item.image }}</td>
+              <td>
+                <div class="image-tag">
+                  <a class="access-link" :href="`https://hub.docker.com/layers/library/${item.image.split(':')[0]}/${item.image.split(':')[1]}`" target="_blank" rel="noopener noreferrer">
+                    {{ item.image }}
+                  </a>
+                </div>
+              </td>
               <td>{{ item.service_name }}</td>
               <td>
                 <router-link
@@ -160,6 +166,30 @@ h1 {
 }
 
 .workspace-link:hover {
+  text-decoration: underline;
+}
+
+.image-tag {
+  background-color: #0d1117;
+  padding: 0.25rem 0.5rem;
+  border-radius: 6px;
+  font-size: 0.75rem;
+  border: 1px solid #30363d;
+  display: inline-block;
+  font-family: monospace;
+  color: #8b949e;
+}
+
+.access-link {
+  color: #79c0ff;
+  text-decoration: none;
+}
+
+.access-link:visited {
+  color: #79c0ff;
+}
+
+.access-link:hover {
   text-decoration: underline;
 }
 
