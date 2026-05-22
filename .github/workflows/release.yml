@@ -24,6 +24,13 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Import GPG key (for signed tag)
+        if: matrix.platform == 'ubuntu-22.04'
+        uses: crazy-max/ghaction-import-gpg@v6
+        with:
+          gpg_private_key: ${{ secrets.GPG_PRIVATE_KEY }}
+          passphrase: ${{ secrets.GPG_PASSPHRASE }}
+
       - name: Install dependencies (ubuntu only)
         if: matrix.platform == 'ubuntu-22.04'
         run: |
@@ -65,34 +72,24 @@ jobs:
             echo "exists=false" >> $GITHUB_OUTPUT
           fi
 
-      - name: Create Tag
-        if: steps.check_tag.outputs.exists == 'false'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const tagName = "${{ steps.package_version.outputs.version }}";
-            try {
-              await github.rest.git.createRef({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                ref: `refs/tags/${tagName}`,
-                sha: context.sha
-              });
-              console.log(`Tag ${tagName} created.`);
-            } catch (error) {
-              if (error.status === 422) {
-                console.log(`Tag ${tagName} already exists.`);
-              } else {
-                throw error;
-              }
-            }
+      - name: Create signed tag
+        if: steps.check_tag.outputs.exists == 'false' && matrix.platform == 'ubuntu-22.04'
+        shell: bash
+        run: |
+          tag_name="${{ steps.package_version.outputs.version }}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git config commit.gpgsign true
+          git config tag.gpgSign true
+          git tag -s "$tag_name" -m "Release $tag_name"
+          git push origin "$tag_name"
 
       - name: Get commit message
         if: steps.check_tag.outputs.exists == 'false'
         id: commit_message
         shell: bash
         run: |
-          delimiter="$(uuidgen)"
+          delimiter="$((node -p "crypto.randomUUID()")"
           {
             echo "message<<$delimiter"
             git log -1 --pretty=%B
