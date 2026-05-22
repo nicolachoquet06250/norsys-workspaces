@@ -1904,5 +1904,99 @@ pub fn stop_all() {
     }
 }
 
+pub fn setup_docker_wsl() -> Result<(), String> {
+    if !is_windows_host() {
+        return Ok(());
+    }
+
+    if !has_wsl_binary() {
+        return Err("WSL n'est pas installé ou n'est pas accessible".to_string());
+    }
+
+    // 1. Récupère l'IP WSL via hostname -I
+    let mut cmd_ip = Command::new("wsl");
+    apply_production_process_flags(&mut cmd_ip);
+    let output_ip = cmd_ip
+        .args(&["hostname", "-I"])
+        .output()
+        .map_err(|e| format!("Erreur lors de la récupération de l'IP WSL : {}", e))?;
+
+    if !output_ip.status.success() {
+        return Err("Impossible de récupérer l'IP WSL".to_string());
+    }
+
+    let ip_list = String::from_utf8_lossy(&output_ip.stdout);
+    let first_ip = ip_list
+        .split_whitespace()
+        .next()
+        .ok_or_else(|| "Aucune IP trouvée pour WSL".to_string())?;
+
+    eprintln!("[orchestrator] IP WSL détectée : {}", first_ip);
+
+    // 2. Set la variable d'environnement DOCKER_HOST côté Windows
+    let docker_host = format!("tcp://{}:2375", first_ip);
+    
+    // Pour l'utilisateur actuel
+    let mut cmd_setx = Command::new("setx");
+    apply_production_process_flags(&mut cmd_setx);
+    let status_setx = cmd_setx
+        .args(&["DOCKER_HOST", &docker_host])
+        .status()
+        .map_err(|e| format!("Erreur lors de l'exécution de setx : {}", e))?;
+
+    if !status_setx.success() {
+        eprintln!("[orchestrator] Attention : échec de setx pour DOCKER_HOST");
+    }
+
+    // 3. Sur WSL crée le fichier /etc/systemd/system/docker.service.d/override.conf
+    let override_content = "[Service]\nExecStart=\nExecStart=/usr/bin/dockerd -H unix:///var/run/docker.sock -H tcp://0.0.0.0:2375 --containerd=/run/containerd/containerd.sock\n";
+    
+    let mut cmd_override = Command::new("wsl");
+    apply_production_process_flags(&mut cmd_override);
+    let status_override = cmd_override
+        .args(&[
+            "sudo",
+            "bash",
+            "-c",
+            &format!(
+                "mkdir -p /etc/systemd/system/docker.service.d/ && echo -e \"{}\" > /etc/systemd/system/docker.service.d/override.conf",
+                override_content.replace("\n", "\\n")
+            ),
+        ])
+        .status()
+        .map_err(|e| format!("Erreur lors de la création du fichier override.conf sur WSL : {}", e))?;
+
+    if !status_override.success() {
+        return Err("Échec de la création du fichier override.conf sur WSL (vérifiez les droits sudo)".to_string());
+    }
+
+    // 4. Redémarre le service docker sur WSL
+    let mut cmd_reload = Command::new("wsl");
+    apply_production_process_flags(&mut cmd_reload);
+    let status_reload = cmd_reload
+        .args(&["sudo", "systemctl", "daemon-reload"])
+        .status()
+        .map_err(|e| format!("Erreur lors du daemon-reload sur WSL : {}", e))?;
+
+    if !status_reload.success() {
+        return Err("Échec du daemon-reload sur WSL".to_string());
+    }
+
+    let mut cmd_restart_docker = Command::new("wsl");
+    apply_production_process_flags(&mut cmd_restart_docker);
+    let status_restart_docker = cmd_restart_docker
+        .args(&["sudo", "systemctl", "restart", "docker"])
+        .status()
+        .map_err(|e| format!("Erreur lors du redémarrage de docker sur WSL : {}", e))?;
+
+    if !status_restart_docker.success() {
+        return Err("Échec du redémarrage du service docker sur WSL".to_string());
+    }
+
+    eprintln!("[orchestrator] Configuration Docker WSL terminée avec succès");
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests;

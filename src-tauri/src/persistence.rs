@@ -323,6 +323,32 @@ pub fn save_settings(settings: &PersistedSettings) -> Result<(), String> {
     Ok(())
 }
 
+pub fn get_setting(key: &str) -> Result<Option<String>, String> {
+    let conn = open_db()?;
+    let mut stmt = conn
+        .prepare("SELECT value FROM settings WHERE key = ?1")
+        .map_err(|e| e.to_string())?;
+    let mut rows = stmt.query(params![key]).map_err(|e| e.to_string())?;
+
+    if let Some(row) = rows.next().map_err(|e| e.to_string())? {
+        let value: String = row.get(0).map_err(|e| e.to_string())?;
+        Ok(Some(value))
+    } else {
+        Ok(None)
+    }
+}
+
+pub fn set_setting(key: &str, value: &str) -> Result<(), String> {
+    let conn = open_db()?;
+    conn.execute(
+        "INSERT INTO settings(key, value) VALUES(?1, ?2)
+         ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+        params![key, value],
+    )
+    .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 pub fn load_settings() -> Result<PersistedSettings, String> {
     let conn = open_db()?;
     let last_workspace_id: String = conn

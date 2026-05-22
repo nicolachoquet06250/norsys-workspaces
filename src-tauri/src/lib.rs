@@ -457,6 +457,21 @@ fn close_splashscreen(window: tauri::WebviewWindow) -> Result<(), String> {
     Ok(())
 }
 
+#[tauri::command]
+async fn ensure_docker_wsl_config() -> Result<(), String> {
+    let config_done = persistence::get_setting("docker_wsl_config_done")
+        .unwrap_or(None)
+        .map(|v| v == "true")
+        .unwrap_or(false);
+
+    if !config_done {
+        orchestrator::setup_docker_wsl()?;
+        let _ = persistence::set_setting("docker_wsl_config_done", "true");
+    }
+
+    Ok(())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     println!("Starting application...");
@@ -475,6 +490,14 @@ pub fn run() {
         .manage(CombinedState::default())
         .setup(|app| {
             spawn_docker_events(app.handle().clone());
+            
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                if let Err(e) = ensure_docker_wsl_config().await {
+                    eprintln!("Erreur lors de la configuration Docker WSL : {}", e);
+                }
+            });
+
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -501,7 +524,8 @@ pub fn run() {
             get_recent_runs,
             add_recent_run,
             get_system_stats,
-            close_splashscreen
+            close_splashscreen,
+            ensure_docker_wsl_config
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
