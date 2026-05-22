@@ -6,16 +6,22 @@ import { useRuntimeStore } from "./stores/runtime";
 import {useVolumesStore} from "./stores/volumes";
 import {useSettingsStore} from "./stores/settings.ts";
 
+import { useWorkspacesStore } from "./stores/workspaces";
+
 const isSidebarCollapsed = ref(window.innerWidth <= 768);
 const isMobile = ref(window.innerWidth <= 768);
 const runtimeStore = useRuntimeStore();
 const volumesStore = useVolumesStore();
 const settingsStore = useSettingsStore();
+const workspacesStore = useWorkspacesStore();
 
 onMounted(async () => {
   // Vérification automatique au démarrage (silencieuse si pas de mise à jour)
   await checkForAppUpdates();
   await settingsStore.loadPersistedSettings();
+
+  // Charger les espaces de travail et les images au démarrage
+  await workspacesStore.fetchWorkspaces();
 
   // Charger les activités récentes
   await runtimeStore.loadRecentRuns();

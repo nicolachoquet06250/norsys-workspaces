@@ -14,8 +14,9 @@ export interface ServiceConfig {
   cwd?: string;
   depends_on: string[];
   mode: string;
+  kind: string;
   env: Record<string, string>;
-  ports?: string[];
+  image?: string;
 }
 
 export interface WorkspaceConfig {

@@ -16,9 +16,12 @@ pub struct ServiceConfig {
     pub cwd: Option<String>,
     pub depends_on: Vec<String>,
     pub mode: String,
+    pub kind: String,
     pub env: HashMap<String, String>,
     #[serde(default)]
     pub ports: Vec<String>,
+    #[serde(default)]
+    pub image: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -71,6 +74,8 @@ struct DockerComposeService {
     volumes: Vec<DockerComposeVolume>,
     #[serde(default)]
     ports: Vec<DockerComposePort>,
+    #[serde(default)]
+    labels: HashMap<String, String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -230,11 +235,18 @@ pub fn detect_docker_services(root: &str) -> Result<Vec<ServiceConfig>, String> 
                 .cloned()
                 .unwrap_or_default();
 
-            let depends_on = compose
-                .services
-                .get(&name)
+            let compose_service = compose.services.get(&name);
+            let depends_on = compose_service
                 .map(|s| s.depends_on.clone())
                 .unwrap_or_default();
+
+            let kind = compose_service
+                .and_then(|s| s.labels.get("dev.workspace.manager.kind"))
+                .cloned()
+                .unwrap_or_else(|| "web".to_string());
+
+            let image = compose_service
+                .and_then(|s| s.image.clone());
 
             ServiceConfig {
                 name: name.clone(),
@@ -243,8 +255,10 @@ pub fn detect_docker_services(root: &str) -> Result<Vec<ServiceConfig>, String> 
                 cwd: Some(trimmed_root.to_string()),
                 depends_on,
                 mode: "background".to_string(),
+                kind,
                 env: HashMap::new(),
                 ports,
+                image,
             }
         })
         .collect();

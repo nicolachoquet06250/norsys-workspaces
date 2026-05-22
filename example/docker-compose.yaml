@@ -12,6 +12,8 @@ services:
       API_URL: http://backend:4000
     depends_on:
       - backend
+    labels:
+      dev.workspace.manager.kind: web
 
   backend:
     image: node:22-alpine
@@ -34,6 +36,8 @@ services:
     depends_on:
       - mysql
       - redis
+    labels:
+      dev.workspace.manager.kind: web
 
   mysql:
     image: mysql:8.4
@@ -48,6 +52,8 @@ services:
       - "3306:3306"
     volumes:
       - mysql_data:/var/lib/mysql
+    labels:
+      dev.workspace.manager.kind: database
 
   redis:
     image: redis:7-alpine
@@ -55,6 +61,8 @@ services:
     restart: unless-stopped
     ports:
       - "6379:6379"
+    labels:
+      dev.workspace.manager.kind: database
 
   adminer:
     image: adminer:latest
@@ -64,6 +72,8 @@ services:
       - "8080:8080"
     depends_on:
       - mysql
+    labels:
+      dev.workspace.manager.kind: web
 
 volumes:
   mysql_data:

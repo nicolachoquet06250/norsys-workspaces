@@ -1927,8 +1927,10 @@ mod tests {
                 cwd: None,
                 depends_on: vec![],
                 mode: "foreground".to_string(),
+                kind: "web".to_string(),
                 env: HashMap::new(),
                 ports: vec![],
+                image: None,
             },
             ServiceConfig {
                 name: "web".to_string(),
@@ -1937,8 +1939,10 @@ mod tests {
                 cwd: None,
                 depends_on: vec!["api".to_string()],
                 mode: "foreground".to_string(),
+                kind: "web".to_string(),
                 env: HashMap::new(),
                 ports: vec![],
+                image: None,
             },
         ];
 
