@@ -15,6 +15,7 @@ use snapshot_manager::Snapshot;
 use std::process::Command;
 use tauri::{AppHandle, Emitter, Manager};
 use workspace_loader::WorkspaceConfig;
+use windows::UI::ViewManagement::{UIColorType, UISettings};
 
 #[derive(Default)]
 struct AppState {
@@ -122,6 +123,7 @@ fn decode_command_stdout(bytes: &[u8]) -> String {
 
 fn build_docker_event_payload(state: &CombinedState) -> serde_json::Value {
     let workspaces = workspace_loader::list_workspaces().unwrap_or_default();
+    let networks = workspace_loader::list_workspace_networks().unwrap_or_default();
     let runtime_states = state
         .app
         .runtime
@@ -134,8 +136,10 @@ fn build_docker_event_payload(state: &CombinedState) -> serde_json::Value {
         "action": "sync",
         "refreshRuntime": true,
         "refreshVolumes": false,
+        "refreshNetworks": true,
         "workspaces": workspaces,
-        "runtimeStates": runtime_states
+        "runtimeStates": runtime_states,
+        "networks": networks
     })
 }
 
@@ -144,6 +148,11 @@ fn build_docker_start_event_payload(workspace_id: &str, state: &CombinedState) -
         .unwrap_or_default()
         .into_iter()
         .filter(|volume| volume.workspace_id == workspace_id)
+        .collect::<Vec<_>>();
+    let networks = workspace_loader::list_workspace_networks()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|network| network.workspace_id == workspace_id)
         .collect::<Vec<_>>();
     let runtime_state = state
         .app
@@ -158,8 +167,10 @@ fn build_docker_start_event_payload(workspace_id: &str, state: &CombinedState) -
         "workspaceId": workspace_id,
         "refreshRuntime": true,
         "refreshVolumes": true,
+        "refreshNetworks": true,
         "runtimeStates": runtime_state.into_iter().collect::<Vec<_>>(),
-        "volumes": volumes
+        "volumes": volumes,
+        "networks": networks
     })
 }
 
@@ -472,6 +483,20 @@ async fn ensure_docker_wsl_config() -> Result<(), String> {
     Ok(())
 }
 
+fn rgb_to_hex(r: u8, g: u8, b: u8) -> String {
+    format!("#{:02X}{:02X}{:02X}", r, g, b)
+}
+
+#[tauri::command]
+fn get_accent_color() -> Result<String, String> {
+    let settings = UISettings::new().map_err(|e| e.to_string())?;
+    let color = settings
+        .GetColorValue(UIColorType::Accent)
+        .map_err(|e| e.to_string())?;
+
+    Ok(rgb_to_hex(color.R, color.G, color.B))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     println!("Starting application...");
@@ -525,7 +550,8 @@ pub fn run() {
             add_recent_run,
             get_system_stats,
             close_splashscreen,
-            ensure_docker_wsl_config
+            ensure_docker_wsl_config,
+            get_accent_color,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

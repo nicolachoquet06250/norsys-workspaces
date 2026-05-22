@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
-import { ref } from "vue";
+import {onMounted, ref} from "vue";
 
 type UiState = "idle" | "stopping" | "starting" | "running" | "error";
 
@@ -10,6 +10,13 @@ export const useSettingsStore = defineStore("settings", () => {
   const username = ref<string>("Utilisateur");
   const email = ref<string>("utilisateur@example.com");
   const isDockerConnected = ref<boolean>(false);
+  const accentColor = ref<string>("purple");
+
+  onMounted(async () => {
+    if (accentColor.value === "#ffffff") {
+      accentColor.value = await invoke('get_accent_color');
+    }
+  })
 
   async function loadPersistedSettings() {
     const persisted = await invoke<{ last_workspace_id?: string | null; ui_state?: UiState }>("get_persisted_settings");
@@ -66,6 +73,7 @@ export const useSettingsStore = defineStore("settings", () => {
     username,
     email,
     isDockerConnected,
+    accentColor,
     loadPersistedSettings,
     persistSettings,
     setUiState,
