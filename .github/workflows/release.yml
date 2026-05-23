@@ -93,6 +93,7 @@ jobs:
           delimiter="$(node -p "crypto.randomUUID()")"
           {
             echo "message<<$delimiter"
+            cat ./README.md
             git log -1 --pretty=%B
             echo "$delimiter"
           } >> "$GITHUB_OUTPUT"
