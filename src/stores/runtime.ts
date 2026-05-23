@@ -68,11 +68,17 @@ export const useRuntimeStore = defineStore("runtime", () => {
     const newState = await invoke<RuntimeWorkspaceState>("get_workspace_runtime_state", {workspaceId});
     const oldState = byWorkspaceId.value[workspaceId];
     const now = Date.now();
+    let hasChanged = false;
 
     if (oldState) {
+      if (oldState.global_status !== newState.global_status || oldState.last_error !== newState.last_error) {
+        hasChanged = true;
+      }
+
       for (const newService of newState.services) {
         const oldService = oldState.services.find(s => s.name === newService.name);
         if (oldService && oldService.status !== newService.status) {
+          hasChanged = true;
           newService.last_transition = now;
           // Persister le changement d'état
           await invoke("add_recent_run", {
@@ -86,11 +92,18 @@ export const useRuntimeStore = defineStore("runtime", () => {
           newService.last_transition = oldService?.last_transition;
         }
       }
+
+      if (!hasChanged && oldState.services.length !== newState.services.length) {
+        hasChanged = true;
+      }
     } else {
+      hasChanged = true;
       newState.services = newState.services.map(s => ({ ...s, last_transition: now }));
     }
 
-    byWorkspaceId.value[workspaceId] = newState;
+    if (hasChanged) {
+      byWorkspaceId.value[workspaceId] = newState;
+    }
   }
 
   function applyDockerRuntimePayload(payload: DockerRuntimeEventPayload) {
@@ -102,6 +115,7 @@ export const useRuntimeStore = defineStore("runtime", () => {
     const nextByWorkspaceId: Record<string, RuntimeWorkspaceState> = {
       ...byWorkspaceId.value,
     };
+    let hasChanged = false;
 
     for (const newState of payload.runtimeStates) {
       const oldState = byWorkspaceId.value[newState.workspace_id];
@@ -114,13 +128,30 @@ export const useRuntimeStore = defineStore("runtime", () => {
         };
       });
 
+      const workspaceChanged = !oldState
+        || oldState.global_status !== newState.global_status
+        || oldState.last_error !== newState.last_error
+        || oldState.services.length !== services.length
+        || oldState.services.some((oldService) => {
+          const nextService = services.find((service) => service.name === oldService.name);
+          return !nextService || nextService.status !== oldService.status || nextService.last_transition !== oldService.last_transition;
+        });
+
+      if (!workspaceChanged) {
+        continue;
+      }
+
+      hasChanged = true;
+
       nextByWorkspaceId[newState.workspace_id] = {
         ...newState,
         services,
       };
     }
 
-    byWorkspaceId.value = nextByWorkspaceId;
+    if (hasChanged) {
+      byWorkspaceId.value = nextByWorkspaceId;
+    }
   }
 
   async function initDockerEventsListener() {

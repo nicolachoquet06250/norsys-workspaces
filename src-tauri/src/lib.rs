@@ -124,6 +124,114 @@ fn decode_command_stdout(bytes: &[u8]) -> String {
     String::from_utf8_lossy(bytes).to_string()
 }
 
+fn find_workspace_root(workspace_id: &str) -> Result<String, String> {
+    let workspace = workspace_loader::list_workspaces()?
+        .into_iter()
+        .find(|item| item.id == workspace_id)
+        .ok_or_else(|| format!("Workspace introuvable: {}", workspace_id))?;
+
+    Ok(workspace.root)
+}
+
+#[tauri::command]
+fn run_container_command(workspace_id: String, service_name: String, command: String) -> Result<String, String> {
+    let workspace_root = find_workspace_root(&workspace_id)?;
+
+    #[cfg(windows)]
+    let container_output = {
+        let distro = get_default_wsl_distro()?;
+        let mut cmd = Command::new("wsl");
+        orchestrator::apply_production_process_flags(&mut cmd);
+        cmd.arg("-d")
+            .arg(&distro)
+            .arg("--cd")
+            .arg(&workspace_root)
+            .arg("--")
+            .arg("docker")
+            .arg("compose")
+            .arg("ps")
+            .arg("-q")
+            .arg(&service_name)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
+
+    #[cfg(not(windows))]
+    let container_output = {
+        let mut cmd = Command::new("docker");
+        orchestrator::apply_production_process_flags(&mut cmd);
+        cmd.current_dir(&workspace_root)
+            .arg("compose")
+            .arg("ps")
+            .arg("-q")
+            .arg(&service_name)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
+
+    if !container_output.status.success() {
+        let stderr = decode_command_stdout(&container_output.stderr);
+        return Err(if stderr.trim().is_empty() {
+            format!(
+                "Impossible de résoudre le conteneur pour le service {}",
+                service_name
+            )
+        } else {
+            stderr
+        });
+    }
+
+    let container_id = decode_command_stdout(&container_output.stdout).trim().to_string();
+    if container_id.is_empty() {
+        return Err(format!(
+            "Aucun conteneur trouvé pour le service {}. Vérifiez qu'il est démarré.",
+            service_name
+        ));
+    }
+
+    #[cfg(windows)]
+    let command_output = {
+        let distro = get_default_wsl_distro()?;
+        let mut cmd = Command::new("wsl");
+        orchestrator::apply_production_process_flags(&mut cmd);
+        cmd.arg("-d")
+            .arg(&distro)
+            .arg("--")
+            .arg("docker")
+            .arg("exec")
+            .arg(&container_id)
+            .arg("sh")
+            .arg("-lc")
+            .arg(&command)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
+
+    #[cfg(not(windows))]
+    let command_output = {
+        let mut cmd = Command::new("docker");
+        orchestrator::apply_production_process_flags(&mut cmd);
+        cmd.arg("exec")
+            .arg(&container_id)
+            .arg("sh")
+            .arg("-lc")
+            .arg(&command)
+            .output()
+            .map_err(|e| e.to_string())?
+    };
+
+    let stdout = decode_command_stdout(&command_output.stdout);
+    let stderr = decode_command_stdout(&command_output.stderr);
+
+    if command_output.status.success() {
+        Ok(stdout)
+    } else if !stderr.trim().is_empty() {
+        Err(stderr)
+    } else {
+        Err(stdout)
+    }
+}
+
 fn build_docker_event_payload(state: &CombinedState) -> serde_json::Value {
     let workspaces = workspace_loader::list_workspaces().unwrap_or_default();
     let networks = workspace_loader::list_workspace_networks().unwrap_or_default();
@@ -563,11 +671,13 @@ pub fn run() {
             close_splashscreen,
             ensure_docker_wsl_config,
             get_accent_color,
+            run_container_command,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
-                let _ = window;
-                orchestrator::stop_all();
+                if window.label() == "main" {
+                    orchestrator::stop_all();
+                }
             }
         })
         .run(tauri::generate_context!())

@@ -11,3 +11,15 @@ if [ -f "$FILE" ]; then
 
   git add "$FILE"
 fi
+
+FILE="src-tauri/Cargo.lock"
+
+if [ -f "$FILE" ]; then
+  tmp="${FILE}.tmp-crlf"
+
+  sed 's/\r$//' "$FILE" | awk '{ printf "%s\r\n", $0 }' > "$tmp"
+
+  mv "$tmp" "$FILE"
+
+  git add "$FILE"
+fi

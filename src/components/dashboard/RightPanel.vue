@@ -74,8 +74,6 @@ const resources = computed(() => {
 
 const actions = [
   { name: 'Nouveau workspace', icon: '➕', to: { name: 'workspace-create' } },
-  { name: 'Parcourir les modèles', icon: '📋' },
-  { name: 'Ouvrir le terminal', icon: '🖥️' },
   { name: 'Nettoyer les ressources', icon: '🧹' },
 ];
 

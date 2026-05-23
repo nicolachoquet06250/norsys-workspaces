@@ -18,6 +18,101 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     workspaces?: WorkspaceConfig[];
   };
 
+  function areWorkspacesEqual(left: WorkspaceConfig, right: WorkspaceConfig) {
+    if (left.id !== right.id || left.name !== right.name || left.root !== right.root) {
+      return false;
+    }
+
+    if (left.open.length !== right.open.length || left.env_files.length !== right.env_files.length) {
+      return false;
+    }
+
+    if (left.services.length !== right.services.length) {
+      return false;
+    }
+
+    if (Object.keys(left.env).length !== Object.keys(right.env).length) {
+      return false;
+    }
+
+    for (let i = 0; i < left.open.length; i += 1) {
+      if (left.open[i] !== right.open[i]) {
+        return false;
+      }
+    }
+
+    for (let i = 0; i < left.env_files.length; i += 1) {
+      if (left.env_files[i] !== right.env_files[i]) {
+        return false;
+      }
+    }
+
+    for (const [key, value] of Object.entries(left.env)) {
+      if (right.env[key] !== value) {
+        return false;
+      }
+    }
+
+    for (let i = 0; i < left.services.length; i += 1) {
+      const leftService = left.services[i];
+      const rightService = right.services[i];
+
+      if (
+        leftService.name !== rightService.name
+        || leftService.display_name !== rightService.display_name
+        || leftService.command !== rightService.command
+        || leftService.cwd !== rightService.cwd
+        || leftService.mode !== rightService.mode
+        || leftService.kind !== rightService.kind
+        || leftService.image !== rightService.image
+      ) {
+        return false;
+      }
+
+      if (
+        leftService.depends_on.length !== rightService.depends_on.length
+        || (leftService.ports?.length ?? 0) !== (rightService.ports?.length ?? 0)
+        || Object.keys(leftService.env).length !== Object.keys(rightService.env).length
+      ) {
+        return false;
+      }
+
+      for (let j = 0; j < leftService.depends_on.length; j += 1) {
+        if (leftService.depends_on[j] !== rightService.depends_on[j]) {
+          return false;
+        }
+      }
+
+      for (let j = 0; j < (leftService.ports?.length ?? 0); j += 1) {
+        if (leftService.ports?.[j] !== rightService.ports?.[j]) {
+          return false;
+        }
+      }
+
+      for (const [envKey, envValue] of Object.entries(leftService.env)) {
+        if (rightService.env[envKey] !== envValue) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  function areWorkspaceListsEqual(left: WorkspaceConfig[], right: WorkspaceConfig[]) {
+    if (left.length !== right.length) {
+      return false;
+    }
+
+    for (let i = 0; i < left.length; i += 1) {
+      if (!areWorkspacesEqual(left[i], right[i])) {
+        return false;
+      }
+    }
+
+    return true;
+  }
+
   const selectedWorkspace = computed<WorkspaceConfig | null>(() => {
     return items.value.find((workspace) => workspace.id === selectedWorkspaceId.value) ?? null;
   });
@@ -26,7 +121,10 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     isLoading.value = true;
     error.value = null;
     try {
-      items.value = await invoke<WorkspaceConfig[]>("list_workspaces");
+      const nextItems = await invoke<WorkspaceConfig[]>("list_workspaces");
+      if (!areWorkspaceListsEqual(items.value, nextItems)) {
+        items.value = nextItems;
+      }
     } catch (fetchError) {
       error.value = fetchError instanceof Error ? fetchError.message : "Impossible de charger les workspaces";
     } finally {
@@ -36,6 +134,10 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
 
   function applyDockerWorkspacePayload(payload: DockerWorkspaceEventPayload) {
     if (!payload.refreshRuntime || !Array.isArray(payload.workspaces)) {
+      return;
+    }
+
+    if (areWorkspaceListsEqual(items.value, payload.workspaces)) {
       return;
     }
 

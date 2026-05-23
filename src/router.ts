@@ -8,54 +8,74 @@ import ImagesView from "./views/ImagesView.vue";
 import VolumesView from "./views/VolumesView.vue";
 import NetworksView from "./views/NetworksView.vue";
 import LogsView from "./views/LogsView.vue";
+import TerminalView from "./views/TerminalView.vue";
+import DefaultLayout from "./layouts/DefaultLayout.vue";
+import TerminalLayout from "./layouts/TerminalLayout.vue";
 
 export const router = createRouter({
   history: createWebHashHistory(),
   routes: [
     {
       path: "/",
-      name: "home",
-      component: HomeView,
+      component: DefaultLayout,
+      children: [
+        {
+          path: "",
+          name: "home",
+          component: HomeView,
+        },
+        {
+          path: "/workspace/:id",
+          name: "workspace-detail",
+          component: WorkspaceDetailView,
+        },
+        {
+          path: "/workspace/new",
+          name: "workspace-create",
+          component: CreateWorkspaceView,
+        },
+        {
+          path: "/workspaces",
+          name: "workspaces",
+          component: WorkspacesView,
+        },
+        {
+          path: "/services",
+          name: "services",
+          component: ServicesView,
+        },
+        {
+          path: "/images",
+          name: "images",
+          component: ImagesView,
+        },
+        {
+          path: "/volumes",
+          name: "volumes",
+          component: VolumesView,
+        },
+        {
+          path: "/networks",
+          name: "networks",
+          component: NetworksView,
+        },
+        {
+          path: "/logs",
+          name: "logs",
+          component: LogsView,
+        },
+      ],
     },
     {
-      path: "/workspace/:id",
-      name: "workspace-detail",
-      component: WorkspaceDetailView,
-    },
-    {
-      path: "/workspace/new",
-      name: "workspace-create",
-      component: CreateWorkspaceView,
-    },
-    {
-      path: "/workspaces",
-      name: "workspaces",
-      component: WorkspacesView,
-    },
-    {
-      path: "/services",
-      name: "services",
-      component: ServicesView,
-    },
-    {
-      path: "/images",
-      name: "images",
-      component: ImagesView,
-    },
-    {
-      path: "/volumes",
-      name: "volumes",
-      component: VolumesView,
-    },
-    {
-      path: "/networks",
-      name: "networks",
-      component: NetworksView,
-    },
-    {
-      path: "/logs",
-      name: "logs",
-      component: LogsView,
+      path: "/terminal",
+      component: TerminalLayout,
+      children: [
+        {
+          path: "",
+          name: "terminal",
+          component: TerminalView,
+        },
+      ],
     },
   ],
 });

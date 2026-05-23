@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import type { WorkspaceConfig, ServiceConfig, ServiceRuntimeStatus } from "../../types";
 import {defineAsyncComponent} from "vue";
+import { WebviewWindow } from "@tauri-apps/api/webviewWindow";
 
 interface ServiceItem {
   config: ServiceConfig;
@@ -25,8 +26,6 @@ withDefaults(defineProps<{
 function getTechIcon(name: string, kind?: string) {
   const n = name.toLowerCase();
   const k = kind?.toLowerCase();
-
-  console.log(n, k);
 
   if (n.includes('node')) return defineAsyncComponent(() => import('../../icons/nodejs.vue'));
   if (n.match(/_js|js_|^js$/) || n.includes('javascript')) return defineAsyncComponent(() => import('../../icons/js.vue'));
@@ -65,6 +64,46 @@ function getStatusLabel(status: ServiceRuntimeStatus) {
     case 'failed': return 'Erreur';
     default: return 'Idle';
   }
+}
+
+function openTerminal(item: ServiceItem) {
+  const sanitizeWindowLabelPart = (value: string) => value.replace(/[^a-zA-Z0-9\-/:_]/g, "-");
+  const safeWorkspaceId = sanitizeWindowLabelPart(item.workspace.id);
+  const safeServiceName = sanitizeWindowLabelPart(item.config.name);
+  const label = `terminal-${safeWorkspaceId}-${safeServiceName}-${Date.now()}`;
+  const workspaceId = encodeURIComponent(item.workspace.id);
+  const serviceName = encodeURIComponent(item.config.name);
+  const workspaceName = item.workspace.name;
+  const title = item.config.display_name || item.config.name;
+
+  const terminalWindow = new WebviewWindow(label, {
+    title: `Terminal · ${workspaceName} · ${title}`,
+    url: `/#/terminal?workspaceId=${workspaceId}&serviceName=${serviceName}`,
+    width: 1000,
+    height: 700,
+    center: true,
+    focus: true,
+    alwaysOnTop: true,
+  });
+
+  terminalWindow.once("tauri://created", async () => {
+    try {
+      await terminalWindow.setFocus();
+      window.setTimeout(async () => {
+        try {
+          await terminalWindow.setAlwaysOnTop(false);
+        } catch (error) {
+          console.error("Impossible de rétablir le z-order de la fenêtre terminal:", error);
+        }
+      }, 150);
+    } catch (error) {
+      console.error("Impossible de forcer le focus de la fenêtre terminal:", error);
+    }
+  });
+
+  terminalWindow.once("tauri://error", (event) => {
+    console.error("Impossible d'ouvrir la fenêtre terminal:", event);
+  });
 }
 </script>
 
@@ -135,7 +174,18 @@ function getStatusLabel(status: ServiceRuntimeStatus) {
             <span v-else class="port">----</span>
           </td>
           <td class="activity hide-tablet">{{ item.lastActivity || 'Il y a 2 min' }}</td>
-          <td><button class="action-btn">⋮</button></td>
+          <td>
+            <button
+              v-if="item.status === 'running'"
+              class="action-btn"
+              type="button"
+              title="Ouvrir le terminal"
+              aria-label="Ouvrir le terminal"
+              @click="openTerminal(item)"
+            >
+              🖥️
+            </button>
+          </td>
         </tr>
       </tbody>
     </table>
