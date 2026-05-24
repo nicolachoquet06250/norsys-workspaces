@@ -60,7 +60,8 @@
       },
       "nsis": {
         "languages": ["French", "English"],
-        "displayLanguageSelector": true
+        "displayLanguageSelector": true,
+        "installerHooks": "windows/installer-hooks.nsh"
       }
     },
     "createUpdaterArtifacts": true
