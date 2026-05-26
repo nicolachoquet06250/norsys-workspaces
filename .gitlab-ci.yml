@@ -56,7 +56,7 @@ build_linux:
   before_script:
     - apt-get update
     - apt-get install -y curl nodejs npm libgtk-3-dev libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-    - rustup target add x86_64-pc-linux-gnu
+    - rustup target add x86_64-unknown-linux-gnu
   script:
     - |
       if [ "$TAG_EXISTS" = "true" ]; then
@@ -64,11 +64,10 @@ build_linux:
         exit 0
       fi
     - npm install
-    - npm run tauri build -- --target x86_64-pc-linux-gnu
+    - npm run tauri build
   artifacts:
     when: always
     paths:
-      - src-tauri/target/x86_64-pc-linux-gnu/release/bundle/**/*
       - src-tauri/target/release/bundle/**/*
 
 build_windows:
@@ -91,11 +90,10 @@ build_windows:
     - rustup default stable
     - rustup target add x86_64-pc-windows-msvc
     - npm install
-    - npm run tauri build -- --target x86_64-pc-windows-msvc
+    - npm run tauri build
   artifacts:
     when: always
     paths:
-      - src-tauri/target/x86_64-pc-windows-msvc/release/bundle/**/*
       - src-tauri/target/release/bundle/**/*
 
 publish_release:
