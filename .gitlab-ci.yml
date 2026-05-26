@@ -110,6 +110,9 @@ publish_release:
       artifacts: true
     - job: build_windows
       artifacts: true
+  before_script:
+    - apt-get update
+    - apt-get install -y curl findutils coreutils bash
   script:
     - |
       if [ "$TAG_EXISTS" = "true" ]; then
