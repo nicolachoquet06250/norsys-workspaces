@@ -90,8 +90,8 @@ build_windows:
         echo "Release already exists, skipping build."
         exit 0
       fi
-    - rustup target add x86_64-pc-windows-gnu
     - rustup default stable
+    - rustup target add x86_64-pc-windows-gnu
     - npm install
     - npx tauri build --target x86_64-pc-windows-gnu --bundles nsis
   artifacts:
