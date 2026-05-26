@@ -63,6 +63,7 @@ build_linux:
         exit 0
       fi
     - npm install
+    - rm -rf src-tauri/target/release/bundle
     - npm run tauri build
   artifacts:
     when: always
@@ -93,6 +94,7 @@ build_windows:
     - rustup default stable
     - rustup target add x86_64-pc-windows-gnu
     - npm install
+    - rm -rf src-tauri/target/x86_64-pc-windows-gnu/release/bundle
     - npx tauri build --target x86_64-pc-windows-gnu --bundles nsis
   artifacts:
     when: always
@@ -123,16 +125,20 @@ publish_release:
       fi
 
       # 1. Collecter tous les fichiers
-      find src-tauri/target -type f \( \
-        -name "*.deb" -o \
-        -name "*.AppImage" -o \
-        -name "*.rpm" -o \
-        -name "*.msi" -o \
-        -name "*.exe" -o \
-        -name "*.zip" -o \
-        -name "*.json" -o \
-        -name "*.sig" \
-      \) -print > files.txt
+      mkdir -p src-tauri/target/release/bundle src-tauri/target/x86_64-pc-windows-gnu/release/bundle
+      find \
+        $(test -d src-tauri/target/release/bundle && echo src-tauri/target/release/bundle) \
+        $(test -d src-tauri/target/x86_64-pc-windows-gnu/release/bundle && echo src-tauri/target/x86_64-pc-windows-gnu/release/bundle) \
+        -type f \( \
+          -name "*.deb" -o \
+          -name "*.AppImage" -o \
+          -name "*.rpm" -o \
+          -name "*.msi" -o \
+          -name "*.exe" -o \
+          -name "*.zip" -o \
+          -name "*.json" -o \
+          -name "*.sig" \
+        \) -print > files.txt
 
       # 2. Uploader les fichiers vers le Package Registry
       while read file; do
