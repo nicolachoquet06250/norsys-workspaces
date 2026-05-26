@@ -191,7 +191,22 @@ publish_release:
         --upload-file "latest.json" \
         "$LATEST_URL"
 
-      # 5. Préparer les liens d'assets pour la release
+      # 5. Supprimer les anciennes versions du fichier latest.json (on ne garde que la plus récente)
+      LATEST_PACKAGE_ID=$(curl --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages?package_name=$PACKAGE_NAME&package_version=latest" | jq -r '.[0].id')
+      if [ "$LATEST_PACKAGE_ID" != "null" ]; then
+        # On récupère tous les IDs des fichiers latest.json, triés par date (du plus ancien au plus récent)
+        FILE_IDS=$(curl --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/$LATEST_PACKAGE_ID/package_files" | jq -r 'map(select(.file_name == "latest.json")) | sort_by(.created_at) | .[].id')
+        NUM_FILES=$(echo "$FILE_IDS" | wc -w)
+        if [ "$NUM_FILES" -gt 1 ]; then
+          # On garde le dernier (le plus récent) et on supprime tous les autres
+          OLD_FILE_IDS=$(echo "$FILE_IDS" | head -n -1)
+          for FILE_ID in $OLD_FILE_IDS; do
+            curl --request DELETE --header "JOB-TOKEN: $CI_JOB_TOKEN" "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/$LATEST_PACKAGE_ID/package_files/$FILE_ID"
+          done
+        fi
+      fi
+
+      # 6. Préparer les liens d'assets pour la release
       ASSETS=""
       while read file; do
         filename="$(basename "$file")"
@@ -203,7 +218,7 @@ publish_release:
       # Ajouter latest.json aux assets
       ASSETS="$ASSETS --assets-link {\"name\":\"latest.json\",\"url\":\"$LATEST_URL\"}"
 
-      # 6. Créer la release
+      # 7. Créer la release
       release-cli create \
         --name "Release $VERSION" \
         --tag-name "$VERSION" \
