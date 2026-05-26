@@ -102,7 +102,7 @@ build_windows:
 
 publish_release:
   stage: release
-  image: registry.gitlab.com/gitlab-org/release-cli:latest
+  image: debian:bookworm-slim
   needs:
     - job: prepare_release
       artifacts: true
@@ -111,7 +111,10 @@ publish_release:
     - job: build_windows
       artifacts: true
   before_script:
-    - apk add --no-cache curl findutils coreutils bash
+    - apt-get update
+    - apt-get install -y --no-install-recommends curl ca-certificates findutils coreutils
+    - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
+    - chmod +x /usr/local/bin/release-cli
   script:
     - |
       if [ "$TAG_EXISTS" = "true" ]; then
