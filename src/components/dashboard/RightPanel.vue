@@ -26,23 +26,21 @@ onMounted(() => {
     runtimeStore.updateSystemStats();
   }, 3000);
 
+  panelResizeObserver = new ResizeObserver(updateStickyState);
+
   void nextTick(() => {
     updateStickyState();
 
     if (rightPanelRef.value) {
-      panelResizeObserver = new ResizeObserver(() => {
-        updateStickyState();
-      });
-      panelResizeObserver.observe(rightPanelRef.value);
+      panelResizeObserver?.observe(rightPanelRef.value);
     }
   });
 
-  window.addEventListener("resize", updateStickyState);
+  panelResizeObserver.observe(document.body);
 });
 
 onUnmounted(() => {
   if (statsInterval) clearInterval(statsInterval);
-  window.removeEventListener("resize", updateStickyState);
   panelResizeObserver?.disconnect();
   panelResizeObserver = null;
 });

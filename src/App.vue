@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted } from "vue";
+import { onMounted, onUnmounted, ref } from 'vue';
 import { checkForAppUpdates } from './updater';
 import { useRuntimeStore } from "./stores/runtime";
 import {useVolumesStore} from "./stores/volumes";
@@ -8,11 +8,14 @@ import {useSettingsStore} from "./stores/settings.ts";
 
 import { useWorkspacesStore } from "./stores/workspaces";
 
+const isSidebarCollapsed = ref(window.innerWidth <= 768);
+const isMobile = ref(window.innerWidth <= 768);
 const runtimeStore = useRuntimeStore();
 const volumesStore = useVolumesStore();
 const networksStore = useNetworksStore();
 const settingsStore = useSettingsStore();
 const workspacesStore = useWorkspacesStore();
+let resizeObserver: ResizeObserver | null = null;
 
 onMounted(async () => {
   // Vérification automatique au démarrage (silencieuse si pas de mise à jour)
@@ -27,6 +30,21 @@ onMounted(async () => {
   await volumesStore.initDockerEventsListener();
   await networksStore.initDockerEventsListener();
   
+  resizeObserver = new ResizeObserver(() => {
+    isMobile.value = window.innerWidth <= 768;
+    if (window.innerWidth > 768) {
+      isSidebarCollapsed.value = false;
+    } else if (!isSidebarCollapsed.value && isMobile.value) {
+      // Keep open if it was already open during resize to mobile?
+      // Actually usually we want it collapsed by default on mobile resize
+      isSidebarCollapsed.value = true;
+    }
+  });
+  resizeObserver.observe(document.body);
+});
+
+onUnmounted(() => {
+  resizeObserver?.disconnect();
 });
 </script>
 
