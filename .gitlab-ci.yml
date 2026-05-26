@@ -93,7 +93,7 @@ build_windows:
     - rustup target add x86_64-pc-windows-gnu
     - rustup default stable
     - npm install
-    - npm run tauri build -- --target x86_64-pc-windows-gnu --bundles nsis
+    - npx tauri build -- --target x86_64-pc-windows-gnu --bundles nsis
   artifacts:
     when: always
     paths:
