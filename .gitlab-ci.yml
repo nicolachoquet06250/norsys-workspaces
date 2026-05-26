@@ -112,7 +112,7 @@ publish_release:
       artifacts: true
   before_script:
     - apt-get update
-    - apt-get install -y --no-install-recommends curl ca-certificates findutils coreutils
+    - apt-get install -y --no-install-recommends curl ca-certificates findutils coreutils jq
     - curl --location --output /usr/local/bin/release-cli "https://gitlab.com/api/v4/projects/gitlab-org%2Frelease-cli/packages/generic/release-cli/latest/release-cli-linux-amd64"
     - chmod +x /usr/local/bin/release-cli
   script:
@@ -122,6 +122,7 @@ publish_release:
         exit 0
       fi
 
+      # 1. Collecter tous les fichiers
       find src-tauri/target -type f \( \
         -name "*.deb" -o \
         -name "*.AppImage" -o \
@@ -133,6 +134,7 @@ publish_release:
         -name "*.sig" \
       \) -print > files.txt
 
+      # 2. Uploader les fichiers vers le Package Registry
       while read file; do
         filename="$(basename "$file")"
 
@@ -141,6 +143,49 @@ publish_release:
           "$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME/$PACKAGE_VERSION/$filename"
       done < files.txt
 
+      # 3. Préparer le fichier latest.json
+      PUB_DATE=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+      NOTES=$(cat release_body.md | jq -Rs .)
+      
+      # Initialisation du JSON
+      echo '{"version":"'$PACKAGE_VERSION'","notes":'$NOTES',"pub_date":"'$PUB_DATE'","platforms":{}}' > latest.json
+
+      # Fonction pour ajouter une plateforme
+      add_platform() {
+        local key=$1
+        local pattern=$2
+        local file_path=$(grep "$pattern" files.txt | head -n 1)
+        if [ -n "$file_path" ]; then
+          local filename=$(basename "$file_path")
+          local sig_file="${file_path}.sig"
+          local signature=""
+          if [ -f "$sig_file" ]; then
+            signature=$(cat "$sig_file")
+          fi
+          local url="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME/$PACKAGE_VERSION/$filename"
+          
+          jq --arg key "$key" \
+             --arg url "$url" \
+             --arg sig "$signature" \
+             '.platforms[$key] = {"signature": $sig, "url": $url}' \
+             latest.json > latest.tmp && mv latest.tmp latest.json
+        fi
+      }
+
+      add_platform "linux-x86_64" "\.AppImage$"
+      add_platform "linux-x86_64-appimage" "\.AppImage$"
+      add_platform "linux-x86_64-deb" "\.deb$"
+      add_platform "linux-x86_64-rpm" "\.rpm$"
+      add_platform "windows-x86_64-nsis" "\.exe$"
+      
+      LATEST_URL="$CI_API_V4_URL/projects/$CI_PROJECT_ID/packages/generic/$PACKAGE_NAME/latest/latest.json"
+
+      # 4. Uploader latest.json vers la version spécifique et la version "latest"
+      curl --fail --header "JOB-TOKEN: $CI_JOB_TOKEN" \
+        --upload-file "latest.json" \
+        "$LATEST_URL"
+
+      # 5. Préparer les liens d'assets pour la release
       ASSETS=""
       while read file; do
         filename="$(basename "$file")"
@@ -148,7 +193,11 @@ publish_release:
 
         ASSETS="$ASSETS --assets-link {\"name\":\"$filename\",\"url\":\"$url\"}"
       done < files.txt
+      
+      # Ajouter latest.json aux assets
+      ASSETS="$ASSETS --assets-link {\"name\":\"latest.json\",\"url\":\"$LATEST_URL\"}"
 
+      # 6. Créer la release
       release-cli create \
         --name "Release $VERSION" \
         --tag-name "$VERSION" \
