@@ -1,8 +1,9 @@
 <script setup lang="ts">
 import { useRoute, useRouter } from "vue-router";
-import { onMounted, onUnmounted } from "vue";
+import { onMounted, onUnmounted, computed } from "vue";
 
 import { useSettingsStore } from "../../stores/settings";
+import { useDocumentationStore } from "../../stores/documentation";
 
 defineProps<{
   isCollapsed: boolean;
@@ -15,21 +16,32 @@ const emit = defineEmits<{
 const route = useRoute();
 const router = useRouter();
 const settingsStore = useSettingsStore();
+const docStore = useDocumentationStore();
 
 let interval: number | undefined;
 
-onMounted(() => {
+onMounted(async () => {
   // Rafraîchir l'état de Docker toutes les 30 secondes
   interval = window.setInterval(() => {
     void settingsStore.checkDockerConnection();
   }, 30000);
+
+  // Charger la documentation au montage
+  await docStore.fetchDocs();
 });
 
 onUnmounted(() => {
   if (interval) clearInterval(interval);
 });
 
-const menuItems = [
+interface MenuItem {
+  name: string;
+  icon: string;
+  path: string;
+  show?: () => boolean;
+}
+
+const menuItems: MenuItem[] = [
   { name: "Accueil", icon: "🏠", path: "/" },
   { name: "Workspaces", icon: "📁", path: "/workspaces" },
   { name: "Services", icon: "🧩", path: "/services" },
@@ -41,7 +53,7 @@ const menuItems = [
   { name: "Logs", icon: "📋", path: "/logs" },
 ];
 
-const secondaryItems = [
+const secondaryItems: MenuItem[] = [
   { name: "Paramètres", icon: "⚙️", path: "/settings" },
   { name: "Extensions", icon: "🔌", path: "/extensions" },
 ];
@@ -49,12 +61,15 @@ const secondaryItems = [
 function isActive(path: string) {
   if (path === "/" && route.path === "/") return true;
   return path !== "/" && route.path.startsWith(path);
-
 }
 
 function navigate(path: string) {
   router.push(path);
 }
+
+const visibleMenuItems = computed(() => {
+  return menuItems.filter(item => !item.show || item.show());
+});
 </script>
 
 <template>
@@ -68,7 +83,7 @@ function navigate(path: string) {
       <nav class="menu-main">
         <ul>
           <li 
-            v-for="item in menuItems" 
+            v-for="item in visibleMenuItems" 
             :key="item.path"
             :class="{ active: isActive(item.path) }"
             @click="navigate(item.path)"

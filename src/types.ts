@@ -59,6 +59,13 @@ export interface RecentRun {
   created_at: string;
 }
 
+export interface DocFile {
+  name: string;
+  path: string;
+  is_dir: boolean;
+  children?: DocFile[];
+}
+
 export interface SystemStats {
   cpu_usage: number;
   memory_used: number;

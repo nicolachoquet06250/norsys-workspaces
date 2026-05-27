@@ -8,6 +8,7 @@ import { useWorkspacesStore } from "../stores/workspaces";
 import StatCard from "../components/dashboard/StatCard.vue";
 import ServiceTable from "../components/dashboard/ServiceTable.vue";
 import RightPanel from "../components/dashboard/RightPanel.vue";
+import WorkspaceDocs from "../components/workspace/WorkspaceDocs.vue";
 import type { RuntimeWorkspaceState, WorkspaceEnvFile } from "../types";
 
 const route = useRoute();
@@ -22,7 +23,7 @@ const isDebugMode = import.meta.env.DEV;
 let runtimePollingHandle: number | null = null;
 let isRuntimeRefreshInFlight = false;
 
-const activeTab = ref<"services" | "logs" | "env">("services");
+const activeTab = ref<"services" | "logs" | "env" | "docs">("services");
 const envFiles = ref<WorkspaceEnvFile[]>([]);
 const mergedEnv = ref<Record<string, string>>({});
 const isLoadingEnv = ref(false);
@@ -279,6 +280,11 @@ function applyRouteSelection() {
   if (!routeWorkspaceId.value) {
     return;
   }
+  
+  if (route.name === 'workspace-docs') {
+    activeTab.value = 'docs';
+  }
+
   if (workspacesStore.selectedWorkspaceId === routeWorkspaceId.value) {
     return;
   }
@@ -510,6 +516,13 @@ async function deleteSelectedWorkspace() {
           >
             🔑 Environnement
           </button>
+          <button 
+            class="tab-btn" 
+            :class="{ active: activeTab === 'docs' }" 
+            @click="activeTab = 'docs'"
+          >
+            📚 Documentation
+          </button>
         </div>
 
         <section v-if="activeTab === 'services'" class="section">
@@ -593,6 +606,10 @@ async function deleteSelectedWorkspace() {
               </div>
             </div>
           </div>
+        </section>
+
+        <section v-if="activeTab === 'docs'" class="section">
+          <WorkspaceDocs :workspaceId="selectedWorkspace.id" />
         </section>
       </template>
 

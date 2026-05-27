@@ -64,6 +64,21 @@ export const router = createRouter({
           name: "logs",
           component: LogsView,
         },
+        {
+          path: "/workspace/:id/docs/:path*",
+          name: "workspace-docs",
+          component: WorkspaceDetailView,
+        },
+        {
+          path: "/settings",
+          name: "settings",
+          component: HomeView,
+        },
+        {
+          path: "/extensions",
+          name: "extensions",
+          component: HomeView,
+        },
       ],
     },
     {

@@ -1,3 +1,4 @@
+mod documentation;
 mod env_manager;
 mod orchestrator;
 mod persistence;
@@ -736,6 +737,9 @@ pub fn run() {
             run_container_command,
             get_workspace_env_files,
             get_workspace_merged_env,
+            documentation::list_docs,
+            documentation::read_doc_file,
+            documentation::get_doc_image,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {
