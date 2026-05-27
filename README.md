@@ -14,8 +14,11 @@ Application de gestion de workspaces type Docker Desktop, permettant la créatio
 - Lis en temps réel l'état du daemon docker
 - Dans une page associée à un workspace :
   - Liste les services puis affiche en temps réel l'état de chacun d'entre eux ainsi que l'image qui leur est associée
+  - Sur chaque ligne de service, un bouton permettant d'interagir avec le conteneur via un terminal
   - Affiche les logs de tous les services en temps réel
   - Affiche l'état globale du workspace
+  - Affiche la documentation si existante
+  - Affiche les variables d'environnement
 - Dans une page séparée :
   - Liste paginée de tous les services de tous les workspaces avec leur état en temps réel
   - Liste paginée des volumes montés avec un lien permettant d'ouvrir le répertoire dans l'explorateur de fichiers
