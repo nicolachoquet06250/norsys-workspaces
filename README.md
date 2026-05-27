@@ -23,6 +23,8 @@ Application de gestion de workspaces type Docker Desktop, permettant la créatio
   - Liste paginée de tous les services de tous les workspaces avec leur état en temps réel
   - Liste paginée des volumes montés avec un lien permettant d'ouvrir le répertoire dans l'explorateur de fichiers
   - Liste paginée des images utilisées par les services du workspace et propose un lien vers la page associée sur le Docker Hub
+  - Liste paginée de tous les réseaux utilisées par les services du workspace
+  - Liste des logs de tous les workspaces réunis à un seul endroit
 
 ## Téléchargement
 
@@ -53,6 +55,4 @@ Application de gestion de workspaces type Docker Desktop, permettant la créatio
 ## Système de mise à jour automatique
 
 Le système d'auto-update a été configuré avec le plugin `@tauri-apps/plugin-updater`.
-
-https://placehold.co/64x64/transparent/000000?text=NC
 
