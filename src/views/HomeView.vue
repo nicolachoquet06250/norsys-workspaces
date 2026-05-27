@@ -181,7 +181,7 @@ function createNewWorkspace() {
           <h2>Workspaces récents</h2>
           <a href="#" class="view-all">Voir tous</a>
         </div>
-        <div class="workspace-grid">
+        <div v-if="workspacesStore.items.length > 0" class="workspace-grid">
           <WorkspaceCard 
             v-for="ws in workspacesStore.items.slice(0, 4)" 
             :key="ws.id" 
@@ -190,12 +190,15 @@ function createNewWorkspace() {
             @click="openWorkspaceDetail"
           />
         </div>
+        <div v-else class="empty-state">
+          <p>Aucun workspace récent à afficher.</p>
+        </div>
       </section>
 
       <section class="section">
         <div class="section-header">
           <h2>Aperçu des services</h2>
-          <div class="filters">
+          <div class="filters" v-if="serviceData.length > 0">
              <select><option>Tous les workspaces</option></select>
              <select><option>Trier par statut</option></select>
           </div>
@@ -206,8 +209,13 @@ function createNewWorkspace() {
       <section class="section">
         <h2>⭐️ Workspaces favoris</h2>
         <div class="favorites-row">
-          <div v-for="ws in workspacesStore.items.slice(0, 3)" :key="'fav-'+ws.id" class="fav-tag">
-             {{ ws.name }}
+          <template v-if="workspacesStore.items.length > 0">
+            <div v-for="ws in workspacesStore.items.slice(0, 3)" :key="'fav-'+ws.id" class="fav-tag">
+               {{ ws.name }}
+            </div>
+          </template>
+          <div v-else class="empty-favs">
+            <p>Vous n'avez pas encore de workspaces favoris.</p>
           </div>
           <button class="add-fav">＋ Ajouter aux favoris</button>
         </div>
@@ -388,6 +396,27 @@ function createNewWorkspace() {
   border-radius: 8px;
   font-size: 0.9rem;
   cursor: pointer;
+}
+
+.empty-state,
+.empty-favs {
+  padding: 1.5rem;
+  background-color: #161b22;
+  border: 1px dashed #30363d;
+  border-radius: 12px;
+  text-align: center;
+}
+
+.empty-state p,
+.empty-favs p {
+  color: #8b949e;
+  font-size: 0.9rem;
+  margin: 0;
+}
+
+.empty-favs {
+  padding: 0.5rem 1rem;
+  border-radius: 8px;
 }
 
 @media (max-width: 1200px) {

@@ -109,7 +109,7 @@ function openTerminal(item: ServiceItem) {
 
 <template>
   <div class="service-table-container">
-    <table class="service-table">
+    <table v-if="services.length > 0" class="service-table">
       <thead>
         <tr>
           <th>Service</th>
@@ -189,7 +189,10 @@ function openTerminal(item: ServiceItem) {
         </tr>
       </tbody>
     </table>
-    <div v-if="showViewAllLink" class="footer">
+    <div v-else class="empty-state">
+      <p>Aucun service à afficher.</p>
+    </div>
+    <div v-if="showViewAllLink && services.length > 0" class="footer">
       <router-link to="/services" class="view-all">Voir tous les services</router-link>
     </div>
   </div>
@@ -311,6 +314,17 @@ function openTerminal(item: ServiceItem) {
 
 .view-all:hover {
   text-decoration: underline;
+}
+
+.empty-state {
+  padding: 2rem;
+  text-align: center;
+}
+
+.empty-state p {
+  color: #8b949e;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 @media (max-width: 900px) {

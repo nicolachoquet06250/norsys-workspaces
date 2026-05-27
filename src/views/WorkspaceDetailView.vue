@@ -472,7 +472,9 @@ async function deleteSelectedWorkspace() {
           </div>
           <div class="logs-container">
             <div v-if="logsStore.error" class="error-msg">{{ logsStore.error }}</div>
-            <div v-else-if="selectedLogs.length === 0" class="empty-logs">Aucun log disponible pour le moment.</div>
+            <div v-else-if="selectedLogs.length === 0" class="empty-logs">
+              <p>Aucun log disponible pour le moment.</p>
+            </div>
             <ul v-else class="logs-list">
               <li v-for="(log, index) in selectedLogs" :key="index">{{ log }}</li>
             </ul>
@@ -709,8 +711,12 @@ async function deleteSelectedWorkspace() {
 .empty-logs, .error-msg {
   padding: 2rem;
   text-align: center;
+}
+
+.empty-logs p {
   color: #8b949e;
-  font-style: italic;
+  font-size: 0.9rem;
+  margin: 0;
 }
 
 .error-msg {
