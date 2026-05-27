@@ -6,6 +6,9 @@ mod workspace_loader;
 mod system_stats;
 
 use std::collections::HashMap;
+use std::fs;
+use std::path::PathBuf;
+use crate::env_manager::{get_env_files, resolve_workspace_env};
 use std::sync::Mutex;
 
 use orchestrator::{RuntimeWorkspaceState, ServiceRuntimeStatus};
@@ -43,6 +46,43 @@ impl Default for CombinedState {
 struct WorkspaceStartResponse {
     workspace_id: String,
     status: RuntimeWorkspaceState,
+}
+
+#[derive(Serialize, Deserialize)]
+struct WorkspaceEnvFile {
+    name: String,
+    content: String,
+}
+
+#[tauri::command]
+fn get_workspace_env_files(workspace_id: String) -> Result<Vec<WorkspaceEnvFile>, String> {
+    let workspace = workspace_loader::list_workspaces()?
+        .into_iter()
+        .find(|w| w.id == workspace_id)
+        .ok_or_else(|| format!("Workspace introuvable: {workspace_id}"))?;
+
+    let file_names = get_env_files(&workspace.root);
+    let mut files = Vec::new();
+
+    for name in file_names {
+        let mut path = PathBuf::from(&workspace.root);
+        path.push(&name);
+        if let Ok(content) = fs::read_to_string(&path) {
+            files.push(WorkspaceEnvFile { name, content });
+        }
+    }
+
+    Ok(files)
+}
+
+#[tauri::command]
+fn get_workspace_merged_env(workspace_id: String) -> Result<HashMap<String, String>, String> {
+    let workspace = workspace_loader::list_workspaces()?
+        .into_iter()
+        .find(|w| w.id == workspace_id)
+        .ok_or_else(|| format!("Workspace introuvable: {workspace_id}"))?;
+
+    Ok(resolve_workspace_env(&workspace))
 }
 
 #[tauri::command]
@@ -598,22 +638,44 @@ fn rgb_to_hex(r: u8, g: u8, b: u8) -> String {
     format!("#{:02X}{:02X}{:02X}", r, g, b)
 }
 
-#[tauri::command]
-fn get_accent_color() -> Result<String, String> {
+fn get_os_accent_color() -> Result<(u8, u8, u8), String> {
     #[cfg(windows)]
     {
         let settings = UISettings::new().map_err(|e| e.to_string())?;
         let color = settings
             .GetColorValue(UIColorType::Accent)
             .map_err(|e| e.to_string())?;
-        return Ok(rgb_to_hex(color.R, color.G, color.B));
+
+        return Ok((color.R, color.G, color.B));
     }
 
     #[cfg(not(windows))]
     {
         // Default accent color for non-Windows platforms
-        return Ok("#7000FF".to_string());
+        return Ok((112, 0, 255));
     }
+}
+
+#[tauri::command]
+fn is_light_accent_color() -> Result<bool, String> {
+    let color = get_os_accent_color()?;
+
+    // Luminance perceptuelle standard
+    let luminance =
+        0.299 * color.0 as f64 +
+            0.587 * color.1 as f64 +
+            0.114 * color.2 as f64;
+
+    Ok(luminance >= 128.0)
+}
+
+#[tauri::command]
+fn get_accent_color() -> Result<String, String> {
+    let color = get_os_accent_color()?;
+
+    let hex_color = rgb_to_hex(color.0, color.1, color.2);
+
+    Ok(hex_color)
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -672,6 +734,8 @@ pub fn run() {
             ensure_docker_wsl_config,
             get_accent_color,
             run_container_command,
+            get_workspace_env_files,
+            get_workspace_merged_env,
         ])
         .on_window_event(|window, event| {
             if let tauri::WindowEvent::CloseRequested { .. } = event {

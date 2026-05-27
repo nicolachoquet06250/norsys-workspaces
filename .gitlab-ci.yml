@@ -1,5 +1,6 @@
 stages:
   - prepare
+  - test
   - build
   - release
 
@@ -13,9 +14,27 @@ workflow:
     - if: '$CI_PIPELINE_SOURCE == "web"'
     - when: never
 
+test_rust:
+  stage: test
+  image: rust:latest
+  cache:
+    key: rust-test-${CI_COMMIT_REF_SLUG}
+    paths:
+      - .cargo/
+      - src-tauri/target/
+  script:
+    - |
+      if [ "$TAG_EXISTS" = "true" ]; then
+        echo "Release already exists, skipping tests."
+        exit 0
+      fi
+    - cargo test --manifest-path src-tauri/Cargo.toml
+
 prepare_release:
   stage: prepare
   image: node:lts
+  needs:
+    - test_rust
   script:
     - apt-get update && apt-get install -y git curl jq
     - VERSION="v$(node -p "require('./package.json').version")"
@@ -46,6 +65,7 @@ build_linux:
   stage: build
   image: rust:latest
   needs:
+    - test_rust
     - prepare_release
   cache:
     key: linux-${CI_COMMIT_REF_SLUG}
@@ -74,6 +94,7 @@ build_windows:
   stage: build
   image: rust:latest
   needs:
+    - test_rust
     - prepare_release
   cache:
     key: windows-${CI_COMMIT_REF_SLUG}

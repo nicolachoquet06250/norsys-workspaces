@@ -1,6 +1,6 @@
 import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
-import {onMounted, ref} from "vue";
+import {computed, onMounted, ref} from "vue";
 
 type UiState = "idle" | "stopping" | "starting" | "running" | "error";
 
@@ -10,12 +10,15 @@ export const useSettingsStore = defineStore("settings", () => {
   const username = ref<string>("Utilisateur");
   const email = ref<string>("utilisateur@example.com");
   const isDockerConnected = ref<boolean>(false);
-  const accentColor = ref<string>("purple");
+  const accentColor = ref<string>("gray");
+  const isAccentColorLight = ref<boolean>(true);
 
   onMounted(async () => {
-    if (accentColor.value === "#ffffff") {
-      accentColor.value = await invoke('get_accent_color');
+    if (accentColor.value === "gray") {
+      accentColor.value = (await invoke<string>('get_accent_color')).replace("#", '');
     }
+
+    isAccentColorLight.value = await invoke('is_light_accent_color');
   })
 
   async function loadPersistedSettings() {
@@ -74,6 +77,7 @@ export const useSettingsStore = defineStore("settings", () => {
     email,
     isDockerConnected,
     accentColor,
+    profilePictureTextColor: computed(() => isAccentColorLight.value ? '000000' : 'FFFFFF'),
     loadPersistedSettings,
     persistSettings,
     setUiState,

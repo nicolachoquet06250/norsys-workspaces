@@ -2,7 +2,7 @@ import { defineStore } from "pinia";
 import { invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { computed, ref } from "vue";
-import type { ServiceConfig, WorkspaceConfig } from "../types";
+import type { ServiceConfig, WorkspaceConfig, WorkspaceEnvFile } from "../types";
 
 export const useWorkspacesStore = defineStore("workspaces", () => {
   const items = ref<WorkspaceConfig[]>([]);
@@ -175,6 +175,14 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     selectedWorkspaceId.value = null;
   }
 
+  async function getWorkspaceEnvFiles(workspaceId: string): Promise<WorkspaceEnvFile[]> {
+    return await invoke<WorkspaceEnvFile[]>("get_workspace_env_files", { workspaceId });
+  }
+
+  async function getWorkspaceMergedEnv(workspaceId: string): Promise<Record<string, string>> {
+    return await invoke<Record<string, string>>("get_workspace_merged_env", { workspaceId });
+  }
+
   async function createWorkspace(name: string, root: string, services: ServiceConfig[] = []) {
     const trimmedName = name.trim();
     const trimmedRoot = root.trim();
@@ -250,5 +258,7 @@ export const useWorkspacesStore = defineStore("workspaces", () => {
     deleteWorkspace,
     selectWorkspace,
     clearSelectedWorkspace,
+    getWorkspaceEnvFiles,
+    getWorkspaceMergedEnv,
   };
 });

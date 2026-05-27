@@ -931,10 +931,11 @@ dependencies = [
 
 [[package]]
 name = "dev-workspace-manager"
-version = "0.4.9"
+version = "0.4.10"
 dependencies = [
  "bollard",
  "directories",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",

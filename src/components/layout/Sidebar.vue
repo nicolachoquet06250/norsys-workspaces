@@ -96,7 +96,7 @@ function navigate(path: string) {
 
     <div class="user-profile">
       <div class="avatar">
-        <img :src="`https://placehold.co/64x64/${settingsStore.accentColor}/000000?text=${encodeURIComponent(settingsStore.username.split(' ').map(p => p.charAt(0)).join(''))}`" :alt="settingsStore.username">
+        <img :src="`https://placehold.co/64x64/${settingsStore.accentColor}/${settingsStore.profilePictureTextColor}?text=${encodeURIComponent(settingsStore.username.split(' ').map(p => p.charAt(0)).join(''))}`" :alt="settingsStore.username">
       </div>
       <div class="user-info">
         <span class="name">{{ settingsStore.username }}</span>

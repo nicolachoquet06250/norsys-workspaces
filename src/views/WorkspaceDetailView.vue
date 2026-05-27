@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, onUnmounted, watch } from "vue";
+import { computed, nextTick, onMounted, onUnmounted, ref, watch } from "vue";
 import { useRoute, useRouter } from "vue-router";
 import { useLogsStore } from "../stores/logs";
 import { useRuntimeStore } from "../stores/runtime";
@@ -8,7 +8,7 @@ import { useWorkspacesStore } from "../stores/workspaces";
 import StatCard from "../components/dashboard/StatCard.vue";
 import ServiceTable from "../components/dashboard/ServiceTable.vue";
 import RightPanel from "../components/dashboard/RightPanel.vue";
-import type { RuntimeWorkspaceState } from "../types";
+import type { RuntimeWorkspaceState, WorkspaceEnvFile } from "../types";
 
 const route = useRoute();
 const router = useRouter();
@@ -21,6 +21,39 @@ const isDebugMode = import.meta.env.DEV;
 
 let runtimePollingHandle: number | null = null;
 let isRuntimeRefreshInFlight = false;
+
+const activeTab = ref<"services" | "logs" | "env">("services");
+const envFiles = ref<WorkspaceEnvFile[]>([]);
+const mergedEnv = ref<Record<string, string>>({});
+const isLoadingEnv = ref(false);
+const activeEnvFileIndex = ref(-1);
+
+async function loadEnvData() {
+  if (!workspacesStore.selectedWorkspaceId) return;
+  isLoadingEnv.value = true;
+  try {
+    const [files, env] = await Promise.all([
+      workspacesStore.getWorkspaceEnvFiles(workspacesStore.selectedWorkspaceId),
+      workspacesStore.getWorkspaceMergedEnv(workspacesStore.selectedWorkspaceId)
+    ]);
+    envFiles.value = files;
+    mergedEnv.value = env;
+  } catch (e) {
+    console.error("Failed to load environment data", e);
+  } finally {
+    isLoadingEnv.value = false;
+  }
+}
+
+watch(activeTab, (newTab) => {
+  if (newTab === "env") {
+    loadEnvData();
+  }
+});
+
+const sortedMergedEnvKeys = computed(() => {
+  return Object.keys(mergedEnv.value).sort();
+});
 
 const routeWorkspaceId = computed(() => String(route.params.id ?? ""));
 
@@ -455,7 +488,31 @@ async function deleteSelectedWorkspace() {
           />
         </div>
 
-        <section class="section">
+        <div class="tabs">
+          <button 
+            class="tab-btn" 
+            :class="{ active: activeTab === 'services' }" 
+            @click="activeTab = 'services'"
+          >
+            🧩 Services
+          </button>
+          <button 
+            class="tab-btn" 
+            :class="{ active: activeTab === 'logs' }" 
+            @click="activeTab = 'logs'"
+          >
+            📋 Logs
+          </button>
+          <button 
+            class="tab-btn" 
+            :class="{ active: activeTab === 'env' }" 
+            @click="activeTab = 'env'"
+          >
+            🔑 Environnement
+          </button>
+        </div>
+
+        <section v-if="activeTab === 'services'" class="section">
           <div class="section-header">
             <h2>Services du workspace</h2>
             <div class="filters">
@@ -465,7 +522,7 @@ async function deleteSelectedWorkspace() {
           <ServiceTable :services="serviceTableData" :show-workspace="false" :show-access-url-column="true" />
         </section>
 
-        <section class="section">
+        <section v-if="activeTab === 'logs'" class="section">
           <div class="section-header">
              <h2>Journaux d'exécution</h2>
              <button class="btn-outline" @click="logsStore.clearWorkspaceLogs(selectedWorkspace.id)">Effacer</button>
@@ -478,6 +535,63 @@ async function deleteSelectedWorkspace() {
             <ul v-else class="logs-list">
               <li v-for="(log, index) in selectedLogs" :key="index">{{ log }}</li>
             </ul>
+          </div>
+        </section>
+
+        <section v-if="activeTab === 'env'" class="section">
+          <div class="section-header">
+            <h2>Variables d'environnement</h2>
+            <button class="btn-outline" @click="loadEnvData" :disabled="isLoadingEnv">
+              {{ isLoadingEnv ? 'Chargement...' : 'Actualiser' }}
+            </button>
+          </div>
+
+          <div v-if="isLoadingEnv" class="env-loading">Chargement des données d'environnement...</div>
+          <div v-else class="env-content">
+            <div class="env-files-sidebar">
+              <h3>Fichiers détectés</h3>
+              <ul class="env-files-list">
+                <li 
+                  v-for="(file, index) in envFiles" 
+                  :key="file.name"
+                  :class="{ active: activeEnvFileIndex === index }"
+                  @click="activeEnvFileIndex = index"
+                >
+                  {{ file.name }}
+                </li>
+                <li 
+                  :class="{ active: activeEnvFileIndex === -1 }"
+                  @click="activeEnvFileIndex = -1"
+                >
+                  Variables fusionnées (résultat)
+                </li>
+              </ul>
+            </div>
+
+            <div class="env-viewer">
+              <div v-if="activeEnvFileIndex === -1" class="merged-env-view">
+                <table class="env-table">
+                  <thead>
+                    <tr>
+                      <th>Variable</th>
+                      <th>Valeur</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="key in sortedMergedEnvKeys" :key="key">
+                      <td class="env-key">{{ key }}</td>
+                      <td class="env-value">{{ mergedEnv[key] }}</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+              <div v-else-if="envFiles[activeEnvFileIndex]" class="file-content-view">
+                <pre class="env-file-content">{{ envFiles[activeEnvFileIndex].content }}</pre>
+              </div>
+              <div v-else class="empty-env">
+                Aucun fichier .env détecté à la racine.
+              </div>
+            </div>
           </div>
         </section>
       </template>
@@ -654,6 +768,151 @@ async function deleteSelectedWorkspace() {
   font-size: 1.1rem;
   color: #f0f6fc;
   font-weight: 600;
+}
+
+.tabs {
+  display: flex;
+  gap: 0.5rem;
+  border-bottom: 1px solid #30363d;
+  padding-bottom: 0.5rem;
+  margin-top: 1rem;
+}
+
+.tab-btn {
+  background: transparent;
+  border: none;
+  padding: 0.5rem 1rem;
+  color: #8b949e;
+  cursor: pointer;
+  font-size: 0.95rem;
+  font-weight: 500;
+  border-radius: 6px;
+  transition: all 0.2s;
+}
+
+.tab-btn:hover {
+  background: #161b22;
+  color: #f0f6fc;
+}
+
+.tab-btn.active {
+  color: #58a6ff;
+  background: #161b22;
+  position: relative;
+}
+
+.tab-btn.active::after {
+  content: "";
+  position: absolute;
+  bottom: -0.6rem;
+  left: 0;
+  right: 0;
+  height: 2px;
+  background: #58a6ff;
+}
+
+.env-content {
+  display: flex;
+  gap: 1.5rem;
+  min-height: 400px;
+}
+
+.env-files-sidebar {
+  width: 250px;
+  border-right: 1px solid #30363d;
+  padding-right: 1rem;
+}
+
+.env-files-sidebar h3 {
+  font-size: 0.9rem;
+  color: #8b949e;
+  margin-bottom: 1rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.env-files-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.25rem;
+}
+
+.env-files-list li {
+  padding: 0.5rem 0.75rem;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 0.9rem;
+  color: #f0f6fc;
+  transition: background 0.2s;
+}
+
+.env-files-list li:hover {
+  background: #21262d;
+}
+
+.env-files-list li.active {
+  background: #1f6feb;
+  color: white;
+}
+
+.env-viewer {
+  flex: 1;
+  background: #0d1117;
+  border: 1px solid #30363d;
+  border-radius: 8px;
+  overflow: auto;
+  max-height: 600px;
+}
+
+.env-file-content {
+  padding: 1rem;
+  margin: 0;
+  font-family: 'Cascadia Code', 'Fira Code', monospace;
+  font-size: 0.9rem;
+  white-space: pre-wrap;
+  color: #d1d5da;
+}
+
+.env-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.env-table th {
+  text-align: left;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #30363d;
+  color: #8b949e;
+  font-size: 0.85rem;
+  font-weight: 600;
+  background: #161b22;
+}
+
+.env-table td {
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid #21262d;
+  font-size: 0.9rem;
+}
+
+.env-key {
+  color: #79c0ff;
+  font-family: monospace;
+  width: 30%;
+}
+
+.env-value {
+  color: #a5d6ff;
+  font-family: monospace;
+  word-break: break-all;
+}
+
+.empty-env, .env-loading {
+  padding: 2rem;
+  text-align: center;
+  color: #8b949e;
 }
 
 .filters select {

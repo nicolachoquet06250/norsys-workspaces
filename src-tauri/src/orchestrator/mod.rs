@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread;
 use std::time::Duration;
 
+use crate::env_manager::get_env_files;
 use crate::workspace_loader::{ServiceConfig, WorkspaceConfig};
 
 #[cfg(windows)]
@@ -1430,7 +1431,27 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
     if has_compose_file(&workspace.root) {
         eprintln!("[orchestrator] mode docker compose activé");
         let command_bin = detect_compose_command(&workspace.root)?;
-        let up_output = run_compose_command(&workspace.root, command_bin, &["up", "--build", "-d"])?;
+        
+        let mut cmd_args = vec!["up", "--build", "-d"];
+
+        // Ajouter les fichiers .env détectés à la commande docker compose
+        let mut env_files_args = Vec::new();
+        let env_files = get_env_files(&workspace.root);
+
+        for file_name in env_files {
+            env_files_args.push("--env-file".to_string());
+            env_files_args.push(file_name);
+        }
+
+        let mut final_args = Vec::new();
+        for arg in &env_files_args {
+            final_args.push(arg.as_str());
+        }
+        for arg in &cmd_args {
+            final_args.push(arg);
+        }
+
+        let up_output = run_compose_command(&workspace.root, command_bin, &final_args)?;
 
         if !up_output.status.success() {
             let stderr = String::from_utf8_lossy(&up_output.stderr).trim().to_string();

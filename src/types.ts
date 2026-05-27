@@ -88,3 +88,8 @@ export interface WorkspaceNetwork {
   service_name: string;
   network: string;
 }
+
+export interface WorkspaceEnvFile {
+  name: string;
+  content: string;
+}
