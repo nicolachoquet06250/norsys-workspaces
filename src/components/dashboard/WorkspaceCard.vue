@@ -12,11 +12,22 @@ defineEmits<{
 
 function getTechIcon(name: string) {
   const n = name.toLowerCase();
-  if (n.includes('api')) return '🟢 JS';
-  if (n.includes('web')) return '🔵 React';
-  if (n.includes('backend')) return '🟣 .NET';
-  if (n.includes('data') || n.includes('pipeline')) return '🟠 Python';
-  return '📦';
+
+  if (n.includes('node')) return 'Node.js';
+  if (n.match(/_js|js_|^js$/) || n.includes('javascript')) return 'JavaScript';
+  if (n.match(/_ts|ts_|^ts$/) || n.includes('typescript')) return 'TypeScript';
+  if (n.includes('python')) return 'Python';
+  if (n.includes('php')) return 'PHP';
+  if (n.includes('java')) return 'Java';
+  if (n.includes('golang')) return 'Golang';
+  if (n.includes('csharp') || n.match(/_c#|c#_|^c#$/) || n.includes('dotnet')) return '.NET';
+
+  if (n.includes('react')) return 'React.js';
+  if (n.includes('vue')) return 'Vue.js';
+  if (n.includes('angular')) return 'Angular';
+  if (n.includes('svelte')) return 'Svelte';
+
+  return 'Web';
 }
 
 function getStatusLabel(status: string) {

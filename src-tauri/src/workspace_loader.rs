@@ -236,60 +236,171 @@ pub fn detect_docker_services(root: &str) -> Result<Vec<ServiceConfig>, String> 
     let compose_yaml_path = Path::new(trimmed_root).join("docker-compose.yaml");
     let compose_yml_path = Path::new(trimmed_root).join("docker-compose.yml");
 
-    let compose_path = if compose_yaml_path.is_file() {
-        compose_yaml_path
-    } else if compose_yml_path.is_file() {
-        compose_yml_path
-    } else {
-        return Ok(vec![]);
-    };
+    if compose_yaml_path.is_file() || compose_yml_path.is_file() {
+        let compose_path = if compose_yaml_path.is_file() {
+            compose_yaml_path
+        } else {
+            compose_yml_path
+        };
 
-    let content = fs::read_to_string(&compose_path)
-        .map_err(|e| format!("Impossible de lire {}: {e}", compose_path.display()))?;
+        let content = fs::read_to_string(&compose_path)
+            .map_err(|e| format!("Impossible de lire {}: {e}", compose_path.display()))?;
 
-    let compose: DockerComposeFile = serde_yaml::from_str(&content)
-        .map_err(|e| format!("docker-compose invalide ({}): {e}", compose_path.display()))?;
+        let compose: DockerComposeFile = serde_yaml::from_str(&content)
+            .map_err(|e| format!("docker-compose invalide ({}): {e}", compose_path.display()))?;
 
-    let mut service_names: Vec<String> = compose.services.keys().cloned().collect();
-    service_names.sort();
+        let mut service_names: Vec<String> = compose.services.keys().cloned().collect();
+        service_names.sort();
 
-    let docker_ports_by_service = docker_ports_for_workspace(trimmed_root).unwrap_or_default();
+        let docker_ports_by_service = docker_ports_for_workspace(trimmed_root).unwrap_or_default();
 
-    let services = service_names
-        .into_iter()
-        .map(|name| {
-            let ports = docker_ports_by_service
-                .get(&name)
-                .cloned()
-                .unwrap_or_default();
+        let services = service_names
+            .into_iter()
+            .map(|name| {
+                let ports = docker_ports_by_service
+                    .get(&name)
+                    .cloned()
+                    .unwrap_or_default();
 
-            let compose_service = compose.services.get(&name);
-            let depends_on = compose_service
-                .map(|s| s.depends_on.clone())
-                .unwrap_or_default();
+                let compose_service = compose.services.get(&name);
+                let depends_on = compose_service
+                    .map(|s| s.depends_on.clone())
+                    .unwrap_or_default();
 
-            let kind = compose_service
-                .and_then(|s| s.labels.get("dev.workspace.manager.kind"))
-                .cloned()
-                .unwrap_or_else(|| "web".to_string());
+                let kind = compose_service
+                    .and_then(|s| s.labels.get("dev.workspace.manager.kind"))
+                    .cloned()
+                    .unwrap_or_else(|| "web".to_string());
 
-            let image = compose_service
-                .and_then(|s| s.image.clone());
+                let image = compose_service
+                    .and_then(|s| s.image.clone());
 
-            ServiceConfig {
-                name: name.clone(),
-                display_name: Some(to_human_friendly(&name)),
-                command: format!("docker compose up {name}"),
-                cwd: Some(trimmed_root.to_string()),
-                depends_on,
-                mode: "background".to_string(),
-                kind,
-                env: HashMap::new(),
-                ports,
-                image,
+                ServiceConfig {
+                    name: name.clone(),
+                    display_name: Some(to_human_friendly(&name)),
+                    command: format!("docker compose up {name}"),
+                    cwd: Some(trimmed_root.to_string()),
+                    depends_on,
+                    mode: "background".to_string(),
+                    kind,
+                    env: HashMap::new(),
+                    ports,
+                    image,
+                }
+            })
+            .collect();
+
+        return Ok(services);
+    }
+
+    // Détection de projets par fichiers caractéristiques
+    let mut services = Vec::new();
+
+    // Node.js (package.json)
+    let package_json_path = Path::new(trimmed_root).join("package.json");
+    if package_json_path.is_file() {
+        if let Ok(content) = fs::read_to_string(&package_json_path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                let mut kind = "node".to_string();
+                if let Some(deps) = v.get("dependencies").and_then(|d| d.as_object()) {
+                    if deps.contains_key("vue") {
+                        kind = "vue".to_string();
+                    } else if deps.contains_key("react") {
+                        kind = "react".to_string();
+                    } else if deps.contains_key("svelte") {
+                        kind = "svelte".to_string();
+                    }
+                }
+                if let Some(dev_deps) = v.get("devDependencies").and_then(|d| d.as_object()) {
+                    if kind == "node" {
+                        if dev_deps.contains_key("vue") {
+                            kind = "vue".to_string();
+                        } else if dev_deps.contains_key("react") {
+                            kind = "react".to_string();
+                        } else if dev_deps.contains_key("svelte") {
+                            kind = "svelte".to_string();
+                        }
+                    }
+                }
+
+                services.push(ServiceConfig {
+                    name: "app".to_string(),
+                    display_name: Some(format!("App ({})", kind)),
+                    command: "npm run dev".to_string(),
+                    cwd: Some(trimmed_root.to_string()),
+                    depends_on: vec![],
+                    mode: "process".to_string(),
+                    kind,
+                    env: HashMap::new(),
+                    ports: vec![],
+                    image: None,
+                });
             }
-        })
-        .collect();
+        }
+    }
+
+    // PHP (composer.json)
+    let composer_json_path = Path::new(trimmed_root).join("composer.json");
+    if composer_json_path.is_file() {
+        let mut kind = "php".to_string();
+        if let Ok(content) = fs::read_to_string(&composer_json_path) {
+            if let Ok(v) = serde_json::from_str::<serde_json::Value>(&content) {
+                if let Some(require) = v.get("require").and_then(|r| r.as_object()) {
+                    if require.contains_key("laravel/framework") {
+                        kind = "laravel".to_string();
+                    } else if require.contains_key("symfony/symfony") || require.contains_key("symfony/framework-bundle") {
+                        kind = "symfony".to_string();
+                    }
+                }
+            }
+        }
+        services.push(ServiceConfig {
+            name: "php".to_string(),
+            display_name: Some(format!("App ({})", kind)),
+            command: "php -S localhost:8000".to_string(),
+            cwd: Some(trimmed_root.to_string()),
+            depends_on: vec![],
+            mode: "process".to_string(),
+            kind,
+            env: HashMap::new(),
+            ports: vec!["8000".to_string()],
+            image: None,
+        });
+    }
+
+    // Rust (Cargo.toml)
+    let cargo_toml_path = Path::new(trimmed_root).join("Cargo.toml");
+    if cargo_toml_path.is_file() {
+        services.push(ServiceConfig {
+            name: "rust".to_string(),
+            display_name: Some("Rust App".to_string()),
+            command: "cargo run".to_string(),
+            cwd: Some(trimmed_root.to_string()),
+            depends_on: vec![],
+            mode: "process".to_string(),
+            kind: "rust".to_string(),
+            env: HashMap::new(),
+            ports: vec![],
+            image: None,
+        });
+    }
+
+    // Java (pom.xml)
+    let pom_xml_path = Path::new(trimmed_root).join("pom.xml");
+    if pom_xml_path.is_file() {
+        services.push(ServiceConfig {
+            name: "java".to_string(),
+            display_name: Some("Java App".to_string()),
+            command: "mvn spring-boot:run".to_string(),
+            cwd: Some(trimmed_root.to_string()),
+            depends_on: vec![],
+            mode: "process".to_string(),
+            kind: "java".to_string(),
+            env: HashMap::new(),
+            ports: vec![],
+            image: None,
+        });
+    }
 
     Ok(services)
 }

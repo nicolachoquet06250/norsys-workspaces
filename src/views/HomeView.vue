@@ -3,6 +3,7 @@ import { computed, onMounted } from "vue";
 import { useRouter } from "vue-router";
 import { useRuntimeStore } from "../stores/runtime";
 import { useSettingsStore } from "../stores/settings";
+import { useNotificationsStore } from "../stores/notifications";
 import { useWorkspacesStore } from "../stores/workspaces";
 import StatCard from "../components/dashboard/StatCard.vue";
 import WorkspaceCard from "../components/dashboard/WorkspaceCard.vue";
@@ -13,6 +14,7 @@ const router = useRouter();
 const workspacesStore = useWorkspacesStore();
 const runtimeStore = useRuntimeStore();
 const settingsStore = useSettingsStore();
+const notificationsStore = useNotificationsStore();
 
 const totalServices = computed(() => {
   return workspacesStore.items.reduce((count, workspace) => count + workspace.services.length, 0);
@@ -120,6 +122,10 @@ function openWorkspaceDetail(workspaceId: string) {
 function createNewWorkspace() {
     router.push({ name: 'workspace-create' });
 }
+
+function markNotificationsAsRead() {
+  notificationsStore.markAsRead();
+}
 </script>
 
 <template>
@@ -136,7 +142,7 @@ function createNewWorkspace() {
           </button>
           <div class="header-icons">
             <button class="icon-btn">🔍</button>
-            <button class="icon-btn badge">🔔<span class="count">3</span></button>
+            <button class="icon-btn badge" @click="markNotificationsAsRead">🔔<span class="count">{{ notificationsStore.count }}</span></button>
             <button class="icon-btn">⚙️</button>
           </div>
         </div>

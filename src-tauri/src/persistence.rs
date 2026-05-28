@@ -107,6 +107,21 @@ fn ensure_service_volumes_table(conn: &Connection) -> Result<(), String> {
     .map_err(|e| format!("Impossible d'initialiser la table service_volumes: {e}"))
 }
 
+fn ensure_notifications_read_state_table(conn: &Connection) -> Result<(), String> {
+    conn.execute_batch(
+        "
+        CREATE TABLE IF NOT EXISTS notifications_read_state (
+            id INTEGER PRIMARY KEY CHECK(id = 1),
+            last_read_recent_run_id INTEGER NOT NULL DEFAULT 0,
+            updated_at TEXT NOT NULL
+        );
+        INSERT OR IGNORE INTO notifications_read_state(id, last_read_recent_run_id, updated_at)
+        VALUES(1, 0, '0');
+        ",
+    )
+    .map_err(|e| format!("Impossible d'initialiser la table notifications_read_state: {e}"))
+}
+
 pub fn init_schema() -> Result<(), String> {
     let conn = open_db()?;
     conn.execute_batch(
@@ -148,6 +163,7 @@ pub fn init_schema() -> Result<(), String> {
     ensure_workspaces_services_column(&conn)?;
     ensure_recent_runs_service_name_column(&conn)?;
     ensure_service_volumes_table(&conn)?;
+    ensure_notifications_read_state_table(&conn)?;
     Ok(())
 }
 
@@ -415,6 +431,53 @@ pub fn get_recent_runs(limit: usize) -> Result<Vec<RecentRun>, String> {
         results.push(row.map_err(|e| e.to_string())?);
     }
     Ok(results)
+}
+
+pub fn get_unread_notifications_count() -> Result<usize, String> {
+    let conn = open_db()?;
+    let last_read_id: i64 = conn
+        .query_row(
+            "SELECT last_read_recent_run_id FROM notifications_read_state WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap_or(0);
+
+    let unread_count: i64 = conn
+        .query_row(
+            "SELECT COUNT(*) FROM (
+                 SELECT id
+                 FROM recent_runs
+                 WHERE service_name IS NOT NULL AND id > ?1
+                 GROUP BY workspace_id, service_name
+             )",
+            params![last_read_id],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    Ok(unread_count.max(0) as usize)
+}
+
+pub fn mark_notifications_as_read() -> Result<(), String> {
+    let conn = open_db()?;
+    let latest_recent_run_id: i64 = conn
+        .query_row(
+            "SELECT COALESCE(MAX(id), 0) FROM recent_runs WHERE service_name IS NOT NULL",
+            [],
+            |row| row.get(0),
+        )
+        .map_err(|e| e.to_string())?;
+
+    conn.execute(
+        "UPDATE notifications_read_state
+         SET last_read_recent_run_id = ?1, updated_at = ?2
+         WHERE id = 1",
+        params![latest_recent_run_id, now_unix()],
+    )
+    .map_err(|e| e.to_string())?;
+
+    Ok(())
 }
 
 pub fn save_snapshot(snapshot: &Snapshot) -> Result<(), String> {

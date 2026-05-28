@@ -4,6 +4,7 @@ import { useRoute, useRouter } from "vue-router";
 import { useLogsStore } from "../stores/logs";
 import { useRuntimeStore } from "../stores/runtime";
 import { useSettingsStore } from "../stores/settings";
+import { useNotificationsStore } from "../stores/notifications";
 import { useWorkspacesStore } from "../stores/workspaces";
 import StatCard from "../components/dashboard/StatCard.vue";
 import ServiceTable from "../components/dashboard/ServiceTable.vue";
@@ -17,6 +18,7 @@ const workspacesStore = useWorkspacesStore();
 const runtimeStore = useRuntimeStore();
 const logsStore = useLogsStore();
 const settingsStore = useSettingsStore();
+const notificationsStore = useNotificationsStore();
 const runtimePollingDelayMs = 1000;
 const isDebugMode = import.meta.env.DEV;
 
@@ -107,6 +109,10 @@ const activeServicesCount = computed(() => {
 
 function normalizeServiceName(name: string): string {
   return name.trim().toLowerCase().replace(/[-_\s]+/g, "");
+}
+
+function markNotificationsAsRead() {
+  notificationsStore.markAsRead();
 }
 
 function normalizeDisplayedPort(port: string): string {
@@ -464,7 +470,7 @@ async function deleteSelectedWorkspace() {
             </div>
             <div class="header-icons">
               <button class="icon-btn">🔍</button>
-              <button class="icon-btn badge">🔔<span class="count">1</span></button>
+              <button class="icon-btn badge" @click="markNotificationsAsRead">🔔<span class="count">{{ notificationsStore.count }}</span></button>
               <button class="icon-btn">⚙️</button>
             </div>
           </div>

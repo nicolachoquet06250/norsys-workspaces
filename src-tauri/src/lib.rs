@@ -326,6 +326,41 @@ fn build_docker_start_event_payload(workspace_id: &str, state: &CombinedState) -
     })
 }
 
+fn emit_notifications_update(app: &AppHandle) {
+    let count = persistence::get_unread_notifications_count()
+        .unwrap_or(0);
+
+    let payload = serde_json::json!({
+        "count": count,
+    });
+
+    let _ = app.emit("notifications:update", payload);
+}
+
+#[tauri::command]
+fn get_unread_notifications_count() -> Result<usize, String> {
+    persistence::get_unread_notifications_count()
+}
+
+#[tauri::command]
+fn mark_notifications_as_read(app: AppHandle) -> Result<(), String> {
+    persistence::mark_notifications_as_read()?;
+    emit_notifications_update(&app);
+    Ok(())
+}
+
+fn add_recent_run_and_emit(
+    app: &AppHandle,
+    workspace_id: &str,
+    service_name: Option<&str>,
+    action: &str,
+    status: &str,
+) -> Result<(), String> {
+    persistence::add_recent_run(workspace_id, service_name, action, status)?;
+    emit_notifications_update(app);
+    Ok(())
+}
+
 fn spawn_docker_events(app: AppHandle) {
     tauri::async_runtime::spawn(async move {
         loop {
@@ -398,7 +433,8 @@ fn start_workspace(
     runtime_guard.insert(workspace_id.clone(), runtime_status.clone());
     drop(runtime_guard);
 
-    persistence::add_recent_run(
+    add_recent_run_and_emit(
+        &app,
         &workspace_id,
         Some("_all_"),
         "start",
@@ -440,7 +476,7 @@ fn get_workspace_runtime_state(workspace_id: String, state: tauri::State<Combine
 }
 
 #[tauri::command]
-fn stop_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> Result<RuntimeWorkspaceState, String> {
+fn stop_workspace(workspace_id: String, state: tauri::State<CombinedState>, app: AppHandle) -> Result<RuntimeWorkspaceState, String> {
     let mut runtime_guard = state.app.runtime.lock().map_err(|_| "Impossible de verrouiller le runtime".to_string())?;
     let current_state = runtime_guard
         .get(&workspace_id)
@@ -453,7 +489,7 @@ fn stop_workspace(workspace_id: String, state: tauri::State<CombinedState>) -> R
 
     orchestrator::stop_workspace_probes(&workspace_id);
 
-    persistence::add_recent_run(&workspace_id, Some("_all_"), "stop", "success")?;
+    add_recent_run_and_emit(&app, &workspace_id, Some("_all_"), "stop", "success")?;
 
     Ok(stopped_state)
 }
@@ -597,8 +633,14 @@ fn get_recent_runs(limit: usize) -> Result<Vec<persistence::RecentRun>, String> 
 }
 
 #[tauri::command]
-fn add_recent_run(workspace_id: String, service_name: Option<String>, action: String, status: String) -> Result<(), String> {
-    persistence::add_recent_run(&workspace_id, service_name.as_deref(), &action, &status)
+fn add_recent_run(workspace_id: String, service_name: Option<String>, action: String, status: String, app: AppHandle) -> Result<(), String> {
+    add_recent_run_and_emit(
+        &app,
+        &workspace_id,
+        service_name.as_deref(),
+        &action,
+        &status,
+    )
 }
 
 #[tauri::command]
@@ -730,6 +772,8 @@ pub fn run() {
             is_docker_connected,
             get_recent_runs,
             add_recent_run,
+            get_unread_notifications_count,
+            mark_notifications_as_read,
             get_system_stats,
             close_splashscreen,
             ensure_docker_wsl_config,

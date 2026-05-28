@@ -43,7 +43,7 @@ function getTechIcon(name: string, kind?: string) {
 
   if (n.includes('postgres')) return defineAsyncComponent(() => import('../../icons/postgres.vue'));
   if (n.includes('mysql')) return defineAsyncComponent(() => import('../../icons/mysql.vue'));
-  if ( n.includes('mariadb')) return defineAsyncComponent(() => import('../../icons/mariadb.vue'));
+  if (n.includes('mariadb')) return defineAsyncComponent(() => import('../../icons/mariadb.vue'));
   if (n.includes('redis')) return defineAsyncComponent(() => import('../../icons/redis.vue'));
 
   if (k === 'database' || n.includes('sql')) return defineAsyncComponent(() => import('../../icons/database.vue'));

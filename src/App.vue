@@ -5,6 +5,7 @@ import { useRuntimeStore } from "./stores/runtime";
 import {useVolumesStore} from "./stores/volumes";
 import {useNetworksStore} from "./stores/networks";
 import {useSettingsStore} from "./stores/settings.ts";
+import {useNotificationsStore} from "./stores/notifications";
 
 import { useWorkspacesStore } from "./stores/workspaces";
 
@@ -15,6 +16,7 @@ const volumesStore = useVolumesStore();
 const networksStore = useNetworksStore();
 const settingsStore = useSettingsStore();
 const workspacesStore = useWorkspacesStore();
+const notificationsStore = useNotificationsStore();
 let resizeObserver: ResizeObserver | null = null;
 
 onMounted(async () => {
@@ -27,8 +29,10 @@ onMounted(async () => {
 
   // Charger les activités récentes
   await runtimeStore.loadRecentRuns();
+  await notificationsStore.loadNotificationsCount();
   await volumesStore.initDockerEventsListener();
   await networksStore.initDockerEventsListener();
+  await notificationsStore.initNotificationsListener();
   
   resizeObserver = new ResizeObserver(() => {
     isMobile.value = window.innerWidth <= 768;
@@ -45,6 +49,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   resizeObserver?.disconnect();
+  notificationsStore.disposeNotificationsListener();
 });
 </script>
 

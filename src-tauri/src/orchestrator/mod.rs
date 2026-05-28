@@ -1420,6 +1420,10 @@ fn spawn_service(
     Ok(child)
 }
 
+fn is_docker_compose_workspace(workspace: &WorkspaceConfig) -> bool {
+    has_compose_file(&workspace.root)
+}
+
 pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String>) -> Result<RuntimeWorkspaceState, String> {
     eprintln!(
         "[orchestrator] démarrage workspace `{}` ({})",
@@ -1428,7 +1432,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
 
     clear_workspace_probe_state(&workspace.id);
 
-    if has_compose_file(&workspace.root) {
+    if is_docker_compose_workspace(workspace) {
         eprintln!("[orchestrator] mode docker compose activé");
         let command_bin = detect_compose_command(&workspace.root)?;
         
@@ -1639,7 +1643,7 @@ pub fn start_workspace(workspace: &WorkspaceConfig, env: &HashMap<String, String
 pub fn attach_workspace_runtime(workspace: &WorkspaceConfig) -> Result<RuntimeWorkspaceState, String> {
     clear_workspace_probe_state(&workspace.id);
 
-    if has_compose_file(&workspace.root) {
+    if is_docker_compose_workspace(workspace) {
         let command_bin = detect_compose_command(&workspace.root)?;
         let service_names = if workspace.services.is_empty() {
             list_compose_services(&workspace.root, command_bin)?
